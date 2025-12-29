@@ -159,6 +159,35 @@ const seedInvoices = [
 
 db.serialize(() => {
   db.run(CREATE_TABLE_SQL);
+  db.all("PRAGMA table_info(invoices);", (err, rows) => {
+    if (err) {
+      console.error("Failed to read table info for invoices", err);
+      return;
+    }
+    const existingColumns = new Set(rows.map((r) => r.name));
+    const addColumnIfMissing = (name, sql) => {
+      if (existingColumns.has(name)) return;
+      db.run(sql, (alterErr) => {
+        if (alterErr) {
+          console.error(`Failed to add column ${name}`, alterErr);
+        } else {
+          console.log(`Added column ${name}`);
+        }
+      });
+    };
+
+    addColumnIfMissing("doc_type", "ALTER TABLE invoices ADD COLUMN doc_type TEXT DEFAULT 'invoice'");
+    addColumnIfMissing("file_kind", "ALTER TABLE invoices ADD COLUMN file_kind TEXT DEFAULT 'pdf'");
+    addColumnIfMissing("merchant", "ALTER TABLE invoices ADD COLUMN merchant TEXT");
+    addColumnIfMissing("vat_amount", "ALTER TABLE invoices ADD COLUMN vat_amount REAL");
+    addColumnIfMissing("approved_at", "ALTER TABLE invoices ADD COLUMN approved_at TEXT");
+    addColumnIfMissing("approved_by", "ALTER TABLE invoices ADD COLUMN approved_by TEXT");
+    addColumnIfMissing("created_at", "ALTER TABLE invoices ADD COLUMN created_at TEXT");
+    addColumnIfMissing("updated_at", "ALTER TABLE invoices ADD COLUMN updated_at TEXT");
+
+    db.run("UPDATE invoices SET doc_type = 'invoice' WHERE doc_type IS NULL");
+    db.run("UPDATE invoices SET file_kind = 'pdf' WHERE file_kind IS NULL");
+  });
   db.get("SELECT COUNT(*) as count FROM invoices", (err, row) => {
     if (err) {
       console.error("Failed to read invoice count", err);
