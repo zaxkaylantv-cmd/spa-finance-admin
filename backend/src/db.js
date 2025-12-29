@@ -255,9 +255,28 @@ const insertInvoice = async (invoice) =>
     );
   });
 
+const updateInvoice = async (id, fields) => {
+  const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category"];
+  const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(fields, key));
+  if (keys.length === 0) return findInvoiceById(id);
+
+  const setClause = keys.map((key) => `${key} = ?`).join(", ");
+  const values = keys.map((key) => fields[key]);
+
+  await new Promise((resolve, reject) => {
+    db.run(`UPDATE invoices SET ${setClause} WHERE id = ?`, [...values, id], (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+
+  return findInvoiceById(id);
+};
+
 module.exports = {
   getInvoices,
   markInvoicePaid,
   archiveInvoice,
   insertInvoice,
+  updateInvoice,
 };

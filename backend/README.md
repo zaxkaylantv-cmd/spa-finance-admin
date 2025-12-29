@@ -15,6 +15,7 @@ Backend service for uploading and parsing invoices, storing them in SQLite, and 
 ## Environment variables
 - `PORT`
 - `OPENAI_API_KEY`
+- `APP_SHARED_SECRET` (required for write endpoints)
 
 ## Storage
 - SQLite database: `data/cashflow.sqlite` (created automatically)
@@ -28,6 +29,7 @@ Backend service for uploading and parsing invoices, storing them in SQLite, and 
 - `POST /api/invoices/:id/archive`
 - `PATCH /api/invoices/:id`
 - `POST /api/upload-invoice` (multipart `file`, parses PDF/text, optional AI extraction)
+- For write endpoints (`POST /api/upload-invoice`, `POST /api/invoices/:id/mark-paid`, `POST /api/invoices/:id/archive`, `PATCH /api/invoices/:id`), include header `X-APP-KEY: <APP_SHARED_SECRET>`.
 
 ## Troubleshooting
 - Missing `OPENAI_API_KEY`: AI extraction/summary is skipped; endpoints return without AI content.

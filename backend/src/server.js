@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
-const { getInvoices, markInvoicePaid, archiveInvoice, insertInvoice } = require("./db");
+const { getInvoices, markInvoicePaid, archiveInvoice, insertInvoice, updateInvoice } = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
@@ -14,6 +14,19 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+const requireAppKey = (req, res, next) => {
+  const expected = process.env.APP_SHARED_SECRET;
+  if (!expected) {
+    console.error("APP_SHARED_SECRET is not configured");
+    return res.status(500).json({ error: "Server configuration error" });
+  }
+  const provided = req.get("x-app-key");
+  if (!provided || provided !== expected) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+};
 
 const uploadDir = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -176,7 +189,7 @@ Write 2-4 concise bullet points (or 2-3 short sentences) about upcoming cash out
   }
 });
 
-app.post("/api/invoices/:id/mark-paid", async (req, res) => {
+app.post("/api/invoices/:id/mark-paid", requireAppKey, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const updated = await markInvoicePaid(id);
@@ -188,7 +201,7 @@ app.post("/api/invoices/:id/mark-paid", async (req, res) => {
   }
 });
 
-app.post("/api/invoices/:id/archive", async (req, res) => {
+app.post("/api/invoices/:id/archive", requireAppKey, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const updated = await archiveInvoice(id);
@@ -200,7 +213,26 @@ app.post("/api/invoices/:id/archive", async (req, res) => {
   }
 });
 
-app.post("/api/upload-invoice", upload.single("file"), async (req, res) => {
+app.patch("/api/invoices/:id", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category"];
+    const payload = {};
+    allowed.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
+        payload[key] = req.body[key];
+      }
+    });
+    const updated = await updateInvoice(id, payload);
+    if (!updated) return res.status(404).json({ error: "Invoice not found" });
+    res.json(updated);
+  } catch (err) {
+    console.error("Failed to update invoice", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       console.warn("Upload attempted with no file");
