@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS invoices (
   category TEXT,
   source TEXT,
   week_label TEXT,
+  doc_type TEXT DEFAULT 'invoice',
+  file_kind TEXT DEFAULT 'pdf',
+  merchant TEXT,
+  vat_amount REAL,
+  approved_at TEXT,
+  approved_by TEXT,
+  created_at TEXT,
+  updated_at TEXT,
   archived INTEGER DEFAULT 0
 )`;
 
@@ -284,6 +292,41 @@ const insertInvoice = async (invoice) =>
     );
   });
 
+const insertReceipt = async (data) =>
+  new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, doc_type, file_kind, merchant, vat_amount, approved_at, approved_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        data.supplier,
+        data.invoice_number,
+        data.issue_date,
+        data.due_date,
+        data.amount,
+        data.status,
+        data.category,
+        data.source,
+        data.week_label,
+        data.archived ?? 0,
+        data.doc_type,
+        data.file_kind,
+        data.merchant,
+        data.vat_amount,
+        data.approved_at,
+        data.approved_by,
+        data.created_at,
+        data.updated_at,
+      ],
+      function (err) {
+        if (err) return reject(err);
+        const id = this.lastID;
+        findInvoiceById(id)
+          .then((row) => resolve(row))
+          .catch(reject);
+      },
+    );
+  });
+
 const updateInvoice = async (id, fields) => {
   const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category"];
   const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(fields, key));
@@ -307,5 +350,6 @@ module.exports = {
   markInvoicePaid,
   archiveInvoice,
   insertInvoice,
+  insertReceipt,
   updateInvoice,
 };
