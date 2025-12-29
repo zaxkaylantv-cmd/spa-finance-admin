@@ -3,10 +3,11 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
-const { getInvoices, markInvoicePaid, archiveInvoice, insertInvoice, updateInvoice } = require("./db");
+const { getInvoices, markInvoicePaid, archiveInvoice, insertInvoice, insertReceipt, updateInvoice } = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
+const { extractReceiptFromImage } = require("./ai/receiptExtractor");
 const OpenAI = require("openai");
 
 const PORT = process.env.PORT || 3002;
@@ -393,6 +394,86 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
   } catch (err) {
     console.error("Error in /api/upload-invoice:", err);
     return res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      console.warn("Receipt upload attempted with no file");
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("Receipt upload received:", {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      path: req.file.path,
+      size: req.file.size,
+    });
+
+    const now = new Date().toISOString();
+    const baseReceipt = {
+      supplier: "Receipt upload",
+      invoice_number: req.file.originalname,
+      issue_date: null,
+      due_date: null,
+      amount: null,
+      status: "Needs info",
+      category: "Uncategorised",
+      source: "Upload",
+      week_label: null,
+      archived: 0,
+      doc_type: "receipt",
+      file_kind: "image",
+      merchant: null,
+      vat_amount: null,
+      approved_at: null,
+      approved_by: null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    let aiResult = null;
+    try {
+      aiResult = await extractReceiptFromImage(req.file.path);
+      console.log("Receipt AI extraction result:", aiResult);
+    } catch (err) {
+      console.error("AI receipt extraction failed:", err);
+    }
+
+    const merged = { ...baseReceipt };
+    if (aiResult && typeof aiResult === "object") {
+      merged.merchant = aiResult.merchant || merged.merchant;
+      merged.issue_date = aiResult.issue_date || merged.issue_date;
+      merged.amount = typeof aiResult.amount === "number" && !Number.isNaN(aiResult.amount) ? aiResult.amount : merged.amount;
+      merged.vat_amount =
+        typeof aiResult.vat_amount === "number" && !Number.isNaN(aiResult.vat_amount) ? aiResult.vat_amount : merged.vat_amount;
+      if (typeof aiResult.confidence === "number" && aiResult.confidence >= 0.75) {
+        merged.status = "Captured";
+      }
+      merged.week_label = merged.issue_date ? `Week of ${merged.issue_date}` : merged.week_label;
+    }
+
+    try {
+      const inserted = await insertReceipt(merged);
+      return res.json({
+        status: "ok",
+        message: "Receipt uploaded",
+        file: {
+          originalName: req.file.originalname,
+          storedName: req.file.filename,
+          storedPath: req.file.path,
+          source: "Upload",
+        },
+        invoice: inserted,
+      });
+    } catch (err) {
+      console.error("Receipt upload insert error:", err);
+      return res.status(500).json({ error: "Upload failed to save receipt" });
+    }
+  } catch (err) {
+    console.error("Error in /api/upload-receipt:", err);
+    return res.status(500).json({ error: "Receipt upload failed" });
   }
 });
 
