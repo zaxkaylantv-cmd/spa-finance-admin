@@ -814,7 +814,7 @@ export default function DocumentsTab({
                           status: editValues.status || undefined,
                           category: editValues.category || undefined,
                         };
-                        const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}`, {
+                        await tryFetchApi(`/api/invoices/${selectedDoc.id}`, {
                           method: "PATCH",
                           headers: {
                             "Content-Type": "application/json",
