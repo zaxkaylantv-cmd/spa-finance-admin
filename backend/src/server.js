@@ -17,6 +17,10 @@ app.use(cors());
 app.use(express.json());
 
 const requireAppKey = (req, res, next) => {
+  const requireKey = (process.env.APP_REQUIRE_KEY || "1").toLowerCase();
+  if (requireKey === "0" || requireKey === "false") {
+    return next();
+  }
   const expected = process.env.APP_SHARED_SECRET;
   if (!expected) {
     console.error("APP_SHARED_SECRET is not configured");

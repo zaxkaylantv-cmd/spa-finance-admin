@@ -16,6 +16,7 @@ Backend service for uploading and parsing invoices, storing them in SQLite, and 
 - `PORT`
 - `OPENAI_API_KEY`
 - `APP_SHARED_SECRET` (required for write endpoints)
+- `APP_REQUIRE_KEY` (default `1`; set to `0` or `false` to disable the shared-secret check for local testing)
 
 ## Storage
 - SQLite database: `data/cashflow.sqlite` (created automatically)
@@ -30,6 +31,8 @@ Backend service for uploading and parsing invoices, storing them in SQLite, and 
 - `PATCH /api/invoices/:id`
 - `POST /api/upload-invoice` (multipart `file`, parses PDF/text, optional AI extraction)
 - For write endpoints (`POST /api/upload-invoice`, `POST /api/invoices/:id/mark-paid`, `POST /api/invoices/:id/archive`, `PATCH /api/invoices/:id`), include header `X-APP-KEY: <APP_SHARED_SECRET>`.
+- Secure mode (default): run normally; write calls must set `X-APP-KEY: $APP_SHARED_SECRET`.
+- Testing mode (local only): `APP_REQUIRE_KEY=0 npm run dev` to skip the shared-secret check.
 
 ## Troubleshooting
 - Missing `OPENAI_API_KEY`: AI extraction/summary is skipped; endpoints return without AI content.
