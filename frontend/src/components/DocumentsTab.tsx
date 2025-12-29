@@ -22,6 +22,8 @@ const statusStyles: Record<InvoiceStatus, string> = {
   Upcoming: "bg-emerald-50 text-emerald-700 border-emerald-100",
   Paid: "bg-slate-100 text-slate-700 border-slate-200",
   Archived: "bg-slate-100 text-slate-500 border-slate-200",
+  "Needs info": "bg-orange-50 text-orange-700 border-orange-100",
+  Captured: "bg-emerald-50 text-emerald-700 border-emerald-100",
 };
 
 const sourceStyles: Record<InvoiceSource, string> = {
@@ -38,7 +40,7 @@ const normalizeDate = (d: Date) => {
 };
 
 const computeInvoiceStatus = (invoice: Invoice, today: Date = new Date()): InvoiceStatus => {
-  if (invoice.status === "Paid" || invoice.status === "Archived") {
+  if (invoice.status === "Paid" || invoice.status === "Archived" || invoice.status === "Needs info" || invoice.status === "Captured") {
     return invoice.status;
   }
 
@@ -72,6 +74,7 @@ type Props = {
   onInvoiceCreatedFromUpload?: (invoice: Invoice) => void;
   onArchiveInvoice?: (id: number | string) => void;
   onInvoiceUpdated?: (invoice: Invoice) => void;
+  appKey: string;
 };
 
 export default function DocumentsTab({
@@ -81,6 +84,7 @@ export default function DocumentsTab({
   onInvoiceCreatedFromUpload,
   onArchiveInvoice,
   onInvoiceUpdated,
+  appKey,
 }: Props) {
   const now = useMemo(() => new Date(), []);
 
@@ -126,6 +130,7 @@ export default function DocumentsTab({
   });
   const dateRangeLabel = useMemo(() => formatRangeLabel(filters.dateRange, now), [filters.dateRange, now]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const receiptFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredDocuments = useMemo(
     () =>
@@ -238,6 +243,9 @@ export default function DocumentsTab({
   const handleFileSelect = () => {
     fileInputRef.current?.click();
   };
+  const handleReceiptFileSelect = () => {
+    receiptFileInputRef.current?.click();
+  };
 
   const handleFileUpload = async (file: File) => {
     if (!file) return;
@@ -252,9 +260,14 @@ export default function DocumentsTab({
           try {
             const formData = new FormData();
             formData.append("file", file);
+            const headers: Record<string, string> = {};
+            if (typeof appKey === "string") {
+              headers["X-APP-KEY"] = appKey;
+            }
             const response = await fetch(url, {
               method: "POST",
               body: formData,
+              headers,
             });
             if (!response.ok) {
               console.error("Upload failed", response.status, "at", url);
@@ -287,10 +300,71 @@ export default function DocumentsTab({
       }
   };
 
+  const handleReceiptUpload = async (file: File) => {
+    if (!file) return;
+    setUploadStatus("uploading");
+    setUploadMessage("Uploading receipt…");
+    try {
+      const endpoints = apiBases.map((base) => `${base}/api/upload-receipt`);
+      let success = false;
+      let data: any = null;
+
+      for (const url of endpoints) {
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const headers: Record<string, string> = {};
+          if (typeof appKey === "string") {
+            headers["X-APP-KEY"] = appKey;
+          }
+          const response = await fetch(url, {
+            method: "POST",
+            body: formData,
+            headers,
+          });
+          if (!response.ok) {
+            console.error("Receipt upload failed", response.status, "at", url);
+            continue;
+          }
+          data = await response.json();
+          success = true;
+          break;
+        } catch (err) {
+          console.error("Receipt upload error at", url, err);
+        }
+      }
+
+      if (!success) {
+        setUploadStatus("error");
+        setUploadMessage("Receipt upload failed. Please try again.");
+        return;
+      }
+
+      console.log("Receipt upload success:", data);
+      setUploadStatus("success");
+      setUploadMessage("Receipt uploaded successfully.");
+      if (data?.invoice && onInvoiceCreatedFromUpload) {
+        onInvoiceCreatedFromUpload(data.invoice as Invoice);
+      }
+    } catch (error) {
+      console.error("Receipt upload error", error);
+      setUploadStatus("error");
+      setUploadMessage("Receipt upload failed. Please check your connection and try again.");
+    }
+  };
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       void handleFileUpload(file);
+    }
+    event.target.value = "";
+  };
+
+  const handleReceiptChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      void handleReceiptUpload(file);
     }
     event.target.value = "";
   };
@@ -331,6 +405,13 @@ export default function DocumentsTab({
                 onChange={handleFileChange}
                 accept=".pdf,.doc,.docx,.txt,image/*"
               />
+              <input
+                ref={receiptFileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleReceiptChange}
+                accept="image/*"
+              />
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-cyan-50 text-cyan-600 shadow-sm">
                 <UploadCloud className="h-6 w-6" />
               </div>
@@ -354,6 +435,13 @@ export default function DocumentsTab({
                   type="button"
                 >
                   Browse folder
+                </button>
+                <button
+                  className="rounded-lg border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm hover:bg-emerald-50"
+                  onClick={handleReceiptFileSelect}
+                  type="button"
+                >
+                  Upload receipt
                 </button>
               </div>
               {uploadStatus !== "idle" && uploadMessage && (
@@ -480,7 +568,7 @@ export default function DocumentsTab({
             <table className="min-w-full divide-y divide-slate-100 text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  {["Date", "Supplier", "Invoice #", "Amount", "Due date", "Status", "Category", "Source", "Actions"].map((col) => (
+                  {["Date", "Type", "Supplier", "Invoice #", "Amount", "Due date", "Status", "Category", "Source", "Actions"].map((col) => (
                     <th key={col} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       {col}
                     </th>
@@ -490,18 +578,27 @@ export default function DocumentsTab({
               <tbody className="divide-y divide-slate-100">
                 {filteredDocuments.map((doc) => {
                   const computedStatus = computeInvoiceStatus(doc);
+                  const displayStatus = (doc.status as InvoiceStatus) || computedStatus;
+                  const statusClass = statusStyles[displayStatus] || "bg-slate-100 text-slate-700 border-slate-200";
+                  const docType = (doc as any).doc_type || (doc as any).docType || "Invoice";
+                  const displayInvoiceNumber = doc.invoiceNumber || (doc as any).invoice_number || "—";
                   return (
                     <tr key={doc.id} className="hover:bg-slate-50/70">
                       <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getIssueDate(doc))}</td>
+                      <td className="px-3 py-3">
+                        <span className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold bg-white border-slate-200 text-slate-700">
+                          {docType}
+                        </span>
+                      </td>
                       <td className="px-3 py-3 font-semibold text-slate-900">{doc.supplier}</td>
-                      <td className="px-3 py-3 text-slate-600">{doc.invoiceNumber}</td>
-                      <td className="px-3 py-3 font-semibold text-slate-900">{currency.format(doc.amount)}</td>
+                      <td className="px-3 py-3 text-slate-600">{displayInvoiceNumber}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-900">{currency.format(Number(doc.amount || 0))}</td>
                       <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getDueDate(doc))}</td>
                       <td className="px-3 py-3">
                         <span
-                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[computedStatus]}`}
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}
                         >
-                          {computedStatus}
+                          {displayStatus}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-slate-600">{doc.category}</td>

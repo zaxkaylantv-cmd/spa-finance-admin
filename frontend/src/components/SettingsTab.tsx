@@ -1,6 +1,11 @@
 import { useState } from "react";
 
-export default function SettingsTab() {
+type Props = {
+  appKey: string;
+  onAppKeyChange: (value: string) => void;
+};
+
+export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
   const [digestFrequency, setDigestFrequency] = useState("Weekly");
   const [digestTime, setDigestTime] = useState("09:00");
   const [showRiskLabels, setShowRiskLabels] = useState(true);
@@ -22,6 +27,20 @@ export default function SettingsTab() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+          <p className="text-lg font-semibold text-slate-900">App key</p>
+          <p className="text-sm text-slate-600">Required for uploads/edits. Stored locally only.</p>
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-600">App Key</span>
+            <input
+              className="w-full rounded-lg border border-slate-200 px-3 py-2"
+              value={appKey}
+              onChange={(e) => onAppKeyChange(e.target.value)}
+              placeholder="Paste shared secret"
+            />
+          </label>
+        </div>
+
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
           <p className="text-lg font-semibold text-slate-900">Business profile</p>
           <div className="grid gap-4 sm:grid-cols-2">

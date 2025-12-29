@@ -37,6 +37,10 @@ export const tryFetchAcrossBases = async (path: string, init?: RequestInit) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [invoices, setInvoices] = useState<Invoice[]>(() => mockInvoices);
+  const [appKey, setAppKey] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("appKey") || "";
+  });
   const company = "Kalyan AI";
 
   useEffect(() => {
@@ -57,6 +61,11 @@ export default function App() {
     };
     loadInvoices();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("appKey", appKey);
+  }, [appKey]);
 
   const activeInvoices = useMemo(() => invoices.filter((inv) => inv.status !== "Archived"), [invoices]);
 
@@ -170,10 +179,11 @@ export default function App() {
             onInvoiceCreatedFromUpload={handleInvoiceCreatedFromUpload}
             onInvoiceUpdated={handleInvoiceUpdated}
             onArchiveInvoice={handleArchiveInvoice}
+            appKey={appKey}
           />
         )}
         {activeTab === "cashflow" && <CashflowTab invoices={activeInvoices} />}
-        {activeTab === "settings" && <SettingsTab />}
+        {activeTab === "settings" && <SettingsTab appKey={appKey} onAppKeyChange={setAppKey} />}
       </main>
     </div>
   );

@@ -1,4 +1,4 @@
-export type InvoiceStatus = "Upcoming" | "Due soon" | "Overdue" | "Paid" | "Archived";
+export type InvoiceStatus = "Upcoming" | "Due soon" | "Overdue" | "Paid" | "Archived" | "Needs info" | "Captured";
 export type InvoiceSource = "Upload" | "Email";
 
 export interface Invoice {
@@ -16,6 +16,7 @@ export interface Invoice {
   category: "Rent" | "Utilities" | "Marketing" | "Staff" | "Software" | "Other";
   source: InvoiceSource;
   weekId: string;
+  doc_type?: string;
   subtotal: number;
   tax: number;
   currency: string;
