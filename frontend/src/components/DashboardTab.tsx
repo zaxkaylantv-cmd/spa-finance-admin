@@ -5,6 +5,7 @@ import type { Invoice, InvoiceStatus } from "../data/mockInvoices";
 import { formatRangeLabel, isInvoiceInDateRange } from "../utils/dateRangeFilter";
 import type { DateRangeFilter } from "../utils/dateRangeFilter";
 import { getDisplayStatus, getInvoiceDueDate, formatDisplayDate } from "../utils/invoiceDates";
+import { apiUrl } from "../utils/api";
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const DASHBOARD_RANGE_KEY = "cashflow_dashboard_date_range";
@@ -48,42 +49,18 @@ export default function DashboardTab({ invoices }: Props) {
   });
   const [metrics, setMetrics] = useState<CashflowSummaryResponse["metrics"] | null>(null);
 
-  const apiBases = (() => {
-    if (typeof window === "undefined") return [""];
-    const isDev = window.location.port === "5175" || window.location.hostname === "localhost";
-    return isDev ? [""] : ["/cashflow-api", "http://185.151.29.141:3002"];
-  })();
-
   useEffect(() => {
     const fetchSummary = async () => {
       setSummaryLoading(true);
       setSummaryError(false);
       try {
         const range = dateRangeFilter || "all";
-        const endpoints = apiBases.map((base) => `${base}/api/cashflow-summary?range=${encodeURIComponent(range)}`);
-        let success = false;
-        let data: CashflowSummaryResponse | null = null;
-
-        for (const url of endpoints) {
-          try {
-            const res = await fetch(url);
-            if (!res.ok) {
-              console.error("Cashflow summary request failed", res.status, "at", url);
-              continue;
-            }
-            data = (await res.json()) as CashflowSummaryResponse;
-            console.log("Cashflow summary response:", data);
-            success = true;
-            break;
-          } catch (err) {
-            console.error("Cashflow summary fetch error at", url, err);
-          }
+        const url = apiUrl(`/api/cashflow-summary?range=${encodeURIComponent(range)}`);
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error(`Cashflow summary request failed with ${res.status}`);
         }
-
-        if (!success || !data) {
-          throw new Error("No successful summary response");
-        }
-
+        const data = (await res.json()) as CashflowSummaryResponse;
         setSummary(data.summary ?? "");
         setMetrics(data.metrics ?? null);
       } catch (err) {

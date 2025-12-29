@@ -6,33 +6,9 @@ import CashflowTab from "./components/CashflowTab";
 import SettingsTab from "./components/SettingsTab";
 import type { Invoice, InvoiceStatus } from "./data/mockInvoices";
 import { mockInvoices } from "./data/mockInvoices";
+import { tryFetchApi } from "./utils/api";
 
 type TabKey = "dashboard" | "documents" | "cashflow" | "settings";
-
-const apiBases = (() => {
-  if (typeof window === "undefined") return [""];
-  const isDev = window.location.port === "5175" || window.location.hostname === "localhost";
-  return isDev ? [""] : ["/cashflow-api", "http://185.151.29.141:3002"];
-})();
-
-export const tryFetchAcrossBases = async (path: string, init?: RequestInit) => {
-  let lastError: unknown = null;
-  for (const base of apiBases) {
-    const url = `${base}${path}`;
-    try {
-      const res = await fetch(url, init);
-      if (!res.ok) {
-        lastError = new Error(`Bad response ${res.status} at ${url}`);
-        continue;
-      }
-      return res;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  if (lastError) throw lastError;
-  throw new Error("No endpoints available");
-};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
@@ -46,7 +22,7 @@ export default function App() {
   useEffect(() => {
     const loadInvoices = async () => {
       try {
-        const res = await tryFetchAcrossBases("/api/invoices");
+        const res = await tryFetchApi("/api/invoices");
         const data = (await res.json()) as { invoices?: Invoice[] };
         if (Array.isArray(data.invoices)) {
           const normalized = data.invoices.map((inv: any) => ({
@@ -72,7 +48,7 @@ export default function App() {
   const markAsPaid = async (id: string) => {
     setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, status: "Paid" as InvoiceStatus } : inv)));
     try {
-      const res = await tryFetchAcrossBases(`/api/invoices/${id}/mark-paid`, { method: "POST" });
+      const res = await tryFetchApi(`/api/invoices/${id}/mark-paid`, { method: "POST" });
       const updated = await res.json();
       if (updated?.id) {
         setInvoices((prev) =>
@@ -87,7 +63,7 @@ export default function App() {
   const archiveInvoice = async (id: string) => {
     setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, status: "Archived" as InvoiceStatus } : inv)));
     try {
-      const res = await tryFetchAcrossBases(`/api/invoices/${id}/archive`, { method: "POST" });
+      const res = await tryFetchApi(`/api/invoices/${id}/archive`, { method: "POST" });
       const data = await res.json();
       if (data?.invoice) {
         setInvoices((prev) =>
@@ -110,7 +86,7 @@ export default function App() {
   const handleArchiveInvoice = async (id: number | string) => {
     setInvoices((prev) => prev.filter((inv) => inv.id !== id));
     try {
-      await tryFetchAcrossBases(`/api/invoices/${id}/archive`, { method: "POST" });
+      await tryFetchApi(`/api/invoices/${id}/archive`, { method: "POST" });
     } catch (err) {
       console.warn("Archive request failed; invoice already removed locally", err);
     }

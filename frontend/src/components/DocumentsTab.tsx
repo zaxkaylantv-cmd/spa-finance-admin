@@ -3,7 +3,7 @@ import { Mail, UploadCloud, FileText } from "lucide-react";
 import type { Invoice, InvoiceSource, InvoiceStatus } from "../data/mockInvoices";
 import type { DateRangeFilter } from "../utils/dateRangeFilter";
 import { isInvoiceInDateRange, formatRangeLabel } from "../utils/dateRangeFilter";
-import { tryFetchAcrossBases } from "../App";
+import { getApiBase, tryFetchApi } from "../utils/api";
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const formatInvoiceDate = (value: string | null | undefined) => {
@@ -229,11 +229,7 @@ export default function DocumentsTab({
     };
   }, [supplierHistory]);
 
-  const apiBases = (() => {
-    if (typeof window === "undefined") return [""];
-    const isDev = window.location.port === "5175" || window.location.hostname === "localhost";
-    return isDev ? [""] : ["/cashflow-api", "http://185.151.29.141:3002"];
-  })();
+  const apiBase = getApiBase();
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
@@ -252,36 +248,30 @@ export default function DocumentsTab({
       setUploadStatus("uploading");
       setUploadMessage("Uploading invoice…");
       try {
-        const endpoints = apiBases.map((base) => `${base}/api/upload-invoice`);
-        let success = false;
+        const url = `${apiBase}/api/upload-invoice`;
         let data: any = null;
 
-        for (const url of endpoints) {
-          try {
-            const formData = new FormData();
-            formData.append("file", file);
-            const headers: Record<string, string> = {};
-            if (typeof appKey === "string") {
-              headers["X-APP-KEY"] = appKey;
-            }
-            const response = await fetch(url, {
-              method: "POST",
-              body: formData,
-              headers,
-            });
-            if (!response.ok) {
-              console.error("Upload failed", response.status, "at", url);
-              continue;
-            }
-            data = await response.json();
-            success = true;
-            break;
-          } catch (err) {
-            console.error("Upload error at", url, err);
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const headers: Record<string, string> = {};
+          if (typeof appKey === "string") {
+            headers["X-APP-KEY"] = appKey;
           }
-        }
-
-        if (!success) {
+          const response = await fetch(url, {
+            method: "POST",
+            body: formData,
+            headers,
+          });
+          if (!response.ok) {
+            console.error("Upload failed", response.status, "at", url);
+            setUploadStatus("error");
+            setUploadMessage("Upload failed. Please try again.");
+            return;
+          }
+          data = await response.json();
+        } catch (err) {
+          console.error("Upload error at", url, err);
           setUploadStatus("error");
           setUploadMessage("Upload failed. Please try again.");
           return;
@@ -305,36 +295,30 @@ export default function DocumentsTab({
     setUploadStatus("uploading");
     setUploadMessage("Uploading receipt…");
     try {
-      const endpoints = apiBases.map((base) => `${base}/api/upload-receipt`);
-      let success = false;
+      const url = `${apiBase}/api/upload-receipt`;
       let data: any = null;
 
-      for (const url of endpoints) {
-        try {
-          const formData = new FormData();
-          formData.append("file", file);
-          const headers: Record<string, string> = {};
-          if (typeof appKey === "string") {
-            headers["X-APP-KEY"] = appKey;
-          }
-          const response = await fetch(url, {
-            method: "POST",
-            body: formData,
-            headers,
-          });
-          if (!response.ok) {
-            console.error("Receipt upload failed", response.status, "at", url);
-            continue;
-          }
-          data = await response.json();
-          success = true;
-          break;
-        } catch (err) {
-          console.error("Receipt upload error at", url, err);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const headers: Record<string, string> = {};
+        if (typeof appKey === "string") {
+          headers["X-APP-KEY"] = appKey;
         }
-      }
-
-      if (!success) {
+        const response = await fetch(url, {
+          method: "POST",
+          body: formData,
+          headers,
+        });
+        if (!response.ok) {
+          console.error("Receipt upload failed", response.status, "at", url);
+          setUploadStatus("error");
+          setUploadMessage("Receipt upload failed. Please try again.");
+          return;
+        }
+        data = await response.json();
+      } catch (err) {
+        console.error("Receipt upload error at", url, err);
         setUploadStatus("error");
         setUploadMessage("Receipt upload failed. Please try again.");
         return;
@@ -830,14 +814,14 @@ export default function DocumentsTab({
                           status: editValues.status || undefined,
                           category: editValues.category || undefined,
                         };
-                        const res = await tryFetchAcrossBases(`/api/invoices/${selectedDoc.id}`, {
+                        const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}`, {
                           method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
+                          headers: {
+                            "Content-Type": "application/json",
+                            ...(appKey ? { "X-APP-KEY": appKey } : {}),
+                          },
                           body: JSON.stringify(body),
                         });
-                        if (!res.ok) {
-                          throw new Error(`HTTP ${res.status}`);
-                        }
                         const updated: Invoice = {
                           ...selectedDoc,
                           ...body,
