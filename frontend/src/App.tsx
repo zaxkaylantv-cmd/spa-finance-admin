@@ -4,11 +4,12 @@ import DashboardTab from "./components/DashboardTab";
 import DocumentsTab from "./components/DocumentsTab";
 import CashflowTab from "./components/CashflowTab";
 import SettingsTab from "./components/SettingsTab";
+import TipsTab from "./components/TipsTab";
 import type { Invoice, InvoiceStatus } from "./data/mockInvoices";
 import { mockInvoices } from "./data/mockInvoices";
 import { tryFetchApi } from "./utils/api";
 
-type TabKey = "dashboard" | "documents" | "cashflow" | "settings";
+type TabKey = "dashboard" | "documents" | "cashflow" | "tips" | "settings";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
@@ -96,6 +97,7 @@ export default function App() {
     { key: "dashboard", label: "Dashboard" },
     { key: "documents", label: "Documents" },
     { key: "cashflow", label: "Cashflow" },
+    { key: "tips", label: "Tips" },
     { key: "settings", label: "Settings" },
   ];
 
@@ -159,6 +161,7 @@ export default function App() {
           />
         )}
         {activeTab === "cashflow" && <CashflowTab invoices={activeInvoices} />}
+        {activeTab === "tips" && <TipsTab />}
         {activeTab === "settings" && <SettingsTab appKey={appKey} onAppKeyChange={setAppKey} />}
       </main>
     </div>

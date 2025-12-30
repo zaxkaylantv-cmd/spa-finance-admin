@@ -7,7 +7,7 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 const db = new sqlite3.Database(dbPath);
 
-const CREATE_TABLE_SQL = `
+const CREATE_INVOICES_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS invoices (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   supplier TEXT,
@@ -28,6 +28,29 @@ CREATE TABLE IF NOT EXISTS invoices (
   created_at TEXT,
   updated_at TEXT,
   archived INTEGER DEFAULT 0
+)`;
+
+const CREATE_TIPS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS tips (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tip_date TEXT,
+  method TEXT,
+  amount REAL,
+  note TEXT,
+  customer_name TEXT,
+  staff_name TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  archived INTEGER DEFAULT 0
+)`;
+
+const CREATE_STAFF_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS staff (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE,
+  active INTEGER DEFAULT 1,
+  created_at TEXT,
+  updated_at TEXT
 )`;
 
 const seedInvoices = [
@@ -166,7 +189,7 @@ const seedInvoices = [
 ];
 
 db.serialize(() => {
-  db.run(CREATE_TABLE_SQL);
+  db.run(CREATE_INVOICES_TABLE_SQL);
   db.all("PRAGMA table_info(invoices);", (err, rows) => {
     if (err) {
       console.error("Failed to read table info for invoices", err);
@@ -195,6 +218,57 @@ db.serialize(() => {
 
     db.run("UPDATE invoices SET doc_type = 'invoice' WHERE doc_type IS NULL");
     db.run("UPDATE invoices SET file_kind = 'pdf' WHERE file_kind IS NULL");
+  });
+  db.run(CREATE_TIPS_TABLE_SQL);
+  db.all("PRAGMA table_info(tips);", (err, rows) => {
+    if (err) {
+      console.error("Failed to read table info for tips", err);
+      return;
+    }
+    const existingColumns = new Set(rows.map((r) => r.name));
+    const addColumnIfMissing = (name, sql) => {
+      if (existingColumns.has(name)) return;
+      db.run(sql, (alterErr) => {
+        if (alterErr) {
+          console.error(`Failed to add column ${name}`, alterErr);
+        } else {
+          console.log(`Added column ${name}`);
+        }
+      });
+    };
+
+    addColumnIfMissing("tip_date", "ALTER TABLE tips ADD COLUMN tip_date TEXT");
+    addColumnIfMissing("method", "ALTER TABLE tips ADD COLUMN method TEXT");
+    addColumnIfMissing("amount", "ALTER TABLE tips ADD COLUMN amount REAL");
+    addColumnIfMissing("note", "ALTER TABLE tips ADD COLUMN note TEXT");
+    addColumnIfMissing("customer_name", "ALTER TABLE tips ADD COLUMN customer_name TEXT");
+    addColumnIfMissing("staff_name", "ALTER TABLE tips ADD COLUMN staff_name TEXT");
+    addColumnIfMissing("created_at", "ALTER TABLE tips ADD COLUMN created_at TEXT");
+    addColumnIfMissing("updated_at", "ALTER TABLE tips ADD COLUMN updated_at TEXT");
+    addColumnIfMissing("archived", "ALTER TABLE tips ADD COLUMN archived INTEGER DEFAULT 0");
+  });
+  db.run(CREATE_STAFF_TABLE_SQL);
+  db.all("PRAGMA table_info(staff);", (err, rows) => {
+    if (err) {
+      console.error("Failed to read table info for staff", err);
+      return;
+    }
+    const existingColumns = new Set(rows.map((r) => r.name));
+    const addColumnIfMissing = (name, sql) => {
+      if (existingColumns.has(name)) return;
+      db.run(sql, (alterErr) => {
+        if (alterErr) {
+          console.error(`Failed to add column ${name}`, alterErr);
+        } else {
+          console.log(`Added column ${name}`);
+        }
+      });
+    };
+
+    addColumnIfMissing("name", "ALTER TABLE staff ADD COLUMN name TEXT UNIQUE");
+    addColumnIfMissing("active", "ALTER TABLE staff ADD COLUMN active INTEGER DEFAULT 1");
+    addColumnIfMissing("created_at", "ALTER TABLE staff ADD COLUMN created_at TEXT");
+    addColumnIfMissing("updated_at", "ALTER TABLE staff ADD COLUMN updated_at TEXT");
   });
   db.get("SELECT COUNT(*) as count FROM invoices", (err, row) => {
     if (err) {
@@ -241,6 +315,22 @@ const findInvoiceById = (id) =>
     });
   });
 
+const findTipById = (id) =>
+  new Promise((resolve, reject) => {
+    db.get("SELECT * FROM tips WHERE id = ?", [id], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+
+const findStaffById = (id) =>
+  new Promise((resolve, reject) => {
+    db.get("SELECT * FROM staff WHERE id = ?", [id], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+
 const markInvoicePaid = async (id) => {
   const existing = await findInvoiceById(id);
   if (!existing) return null;
@@ -263,6 +353,97 @@ const archiveInvoice = async (id) => {
     });
   });
   return findInvoiceById(id);
+};
+
+const getTips = ({ includeArchived = false } = {}) =>
+  new Promise((resolve, reject) => {
+    const sql = includeArchived
+      ? "SELECT * FROM tips ORDER BY tip_date DESC, id DESC"
+      : "SELECT * FROM tips WHERE archived = 0 ORDER BY tip_date DESC, id DESC";
+    db.all(sql, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+
+const getStaff = ({ includeInactive = false } = {}) =>
+  new Promise((resolve, reject) => {
+    const sql = includeInactive
+      ? "SELECT * FROM staff ORDER BY name ASC"
+      : "SELECT * FROM staff WHERE active = 1 ORDER BY name ASC";
+    db.all(sql, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+
+const insertStaff = async ({ name }) => {
+  const now = new Date().toISOString();
+  const trimmed = (name || "").trim();
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO staff (name, active, created_at, updated_at)
+       VALUES (?, 1, ?, ?)`,
+      [trimmed, now, now],
+      function (err) {
+        if (err) return reject(err);
+        const id = this.lastID;
+        findStaffById(id)
+          .then((row) => resolve(row))
+          .catch(reject);
+      },
+    );
+  });
+};
+
+const insertTip = async ({ tip_date, method, amount, note, customer_name, staff_name }) => {
+  const now = new Date().toISOString();
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO tips (tip_date, method, amount, note, customer_name, staff_name, created_at, updated_at, archived)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [tip_date, method, amount, note ?? null, customer_name ?? null, staff_name ?? null, now, now],
+      function (err) {
+        if (err) return reject(err);
+        const id = this.lastID;
+        findTipById(id)
+          .then((row) => resolve(row))
+          .catch(reject);
+      },
+    );
+  });
+};
+
+const updateTip = async (id, fields) => {
+  const allowed = ["tip_date", "method", "amount", "note", "customer_name", "staff_name"];
+  const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(fields, key));
+  if (keys.length === 0) return findTipById(id);
+
+  const setClause = keys.map((key) => `${key} = ?`).join(", ");
+  const values = keys.map((key) => fields[key]);
+  const now = new Date().toISOString();
+
+  await new Promise((resolve, reject) => {
+    db.run(`UPDATE tips SET ${setClause}, updated_at = ? WHERE id = ?`, [...values, now, id], (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+
+  return findTipById(id);
+};
+
+const archiveTip = async (id) => {
+  const existing = await findTipById(id);
+  if (!existing) return null;
+  const now = new Date().toISOString();
+  await new Promise((resolve, reject) => {
+    db.run("UPDATE tips SET archived = 1, updated_at = ? WHERE id = ?", [now, id], (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+  return findTipById(id);
 };
 
 const insertInvoice = async (invoice) =>
@@ -352,4 +533,10 @@ module.exports = {
   insertInvoice,
   insertReceipt,
   updateInvoice,
+  getTips,
+  insertTip,
+  updateTip,
+  archiveTip,
+  getStaff,
+  insertStaff,
 };

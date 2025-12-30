@@ -3,7 +3,20 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
-const { getInvoices, markInvoicePaid, archiveInvoice, insertInvoice, insertReceipt, updateInvoice } = require("./db");
+const {
+  getInvoices,
+  markInvoicePaid,
+  archiveInvoice,
+  insertInvoice,
+  insertReceipt,
+  updateInvoice,
+  getTips,
+  insertTip,
+  updateTip,
+  archiveTip,
+  getStaff,
+  insertStaff,
+} = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
@@ -56,6 +69,20 @@ const aiClient = (() => {
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/api/auth-status", (req, res) => {
+  const requireKey = (process.env.APP_REQUIRE_KEY || "1").toLowerCase();
+  const appRequireKey = !(requireKey === "0" || requireKey === "false");
+  const provided = req.get("x-app-key");
+  const headerPresent = typeof provided === "string" && provided.length > 0;
+  const authorised = appRequireKey ? headerPresent && provided === process.env.APP_SHARED_SECRET : true;
+
+  res.json({
+    app_require_key: appRequireKey,
+    header_present: headerPresent,
+    authorised,
+  });
 });
 
 app.get("/api/invoices", async (_req, res) => {
@@ -194,6 +221,47 @@ Write 2-4 concise bullet points (or 2-3 short sentences) about upcoming cash out
   }
 });
 
+app.get("/api/tips", async (_req, res) => {
+  try {
+    const tips = await getTips();
+    res.json({ tips });
+  } catch (err) {
+    console.error("Failed to fetch tips", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/staff", async (_req, res) => {
+  try {
+    const staff = await getStaff();
+    res.json({ staff });
+  } catch (err) {
+    console.error("Failed to fetch staff", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/staff", requireAppKey, async (req, res) => {
+  try {
+    const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    if (!rawName || rawName.length < 2) {
+      return res.status(400).json({ error: "name must be at least 2 characters" });
+    }
+    try {
+      const inserted = await insertStaff({ name: rawName });
+      return res.json(inserted);
+    } catch (err) {
+      if (err && err.code === "SQLITE_CONSTRAINT") {
+        return res.status(409).json({ error: "name already exists" });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error("Failed to insert staff", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.post("/api/invoices/:id/mark-paid", requireAppKey, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -233,6 +301,95 @@ app.patch("/api/invoices/:id", requireAppKey, async (req, res) => {
     res.json(updated);
   } catch (err) {
     console.error("Failed to update invoice", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/tips", requireAppKey, async (req, res) => {
+  try {
+    const { tip_date, method, amount, note, customer_name, staff_name } = req.body || {};
+    if (!tip_date) {
+      return res.status(400).json({ error: "tip_date is required" });
+    }
+    const normalisedMethod = typeof method === "string" ? method.toLowerCase().trim() : "";
+    if (normalisedMethod !== "cash" && normalisedMethod !== "card") {
+      return res.status(400).json({ error: "method must be cash or card" });
+    }
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: "amount must be greater than zero" });
+    }
+    const inserted = await insertTip({
+      tip_date,
+      method: normalisedMethod,
+      amount: parsedAmount,
+      note,
+      customer_name: typeof customer_name === "string" ? customer_name.trim() || null : null,
+      staff_name: typeof staff_name === "string" ? staff_name.trim() || null : null,
+    });
+    res.json(inserted);
+  } catch (err) {
+    console.error("Failed to insert tip", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.patch("/api/tips/:id", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const allowed = ["tip_date", "method", "amount", "note", "customer_name", "staff_name"];
+    const payload = {};
+    allowed.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
+        payload[key] = req.body[key];
+      }
+    });
+
+    if ("method" in payload) {
+      const normalisedMethod = typeof payload.method === "string" ? payload.method.toLowerCase().trim() : "";
+      if (normalisedMethod !== "cash" && normalisedMethod !== "card") {
+        return res.status(400).json({ error: "method must be cash or card" });
+      }
+      payload.method = normalisedMethod;
+    }
+
+    if ("amount" in payload) {
+      const parsedAmount = Number(payload.amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ error: "amount must be greater than zero" });
+      }
+      payload.amount = parsedAmount;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+
+    if ("customer_name" in payload && typeof payload.customer_name === "string") {
+      payload.customer_name = payload.customer_name.trim();
+    }
+
+    if ("staff_name" in payload && typeof payload.staff_name === "string") {
+      payload.staff_name = payload.staff_name.trim();
+    }
+
+    const updated = await updateTip(id, payload);
+    if (!updated) return res.status(404).json({ error: "Tip not found" });
+    res.json(updated);
+  } catch (err) {
+    console.error("Failed to update tip", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/tips/:id/archive", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const archived = await archiveTip(id);
+    if (!archived) return res.status(404).json({ error: "Tip not found" });
+    res.json({ success: true, tip: archived });
+  } catch (err) {
+    console.error("Failed to archive tip", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

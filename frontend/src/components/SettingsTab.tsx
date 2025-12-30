@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { tryFetchApi } from "../utils/api";
 
 type Props = {
   appKey: string;
@@ -12,11 +13,49 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
   const [showConfidence, setShowConfidence] = useState(true);
   const [emailConnected, setEmailConnected] = useState(true);
   const [emailPaused, setEmailPaused] = useState(false);
+  const [keyRequired, setKeyRequired] = useState<boolean | null>(null);
+  const [keyValidity, setKeyValidity] = useState<"unknown" | "valid" | "invalid" | "not_set">("unknown");
+  const [keyStatusError, setKeyStatusError] = useState<string | null>(null);
+  const [draftKey, setDraftKey] = useState(appKey);
+  const [savedMessageVisible, setSavedMessageVisible] = useState(false);
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
     setEmailPaused(false);
   };
+
+  const refreshKeyStatus = async (overrideKey?: string) => {
+    try {
+      setKeyStatusError(null);
+      const baseRes = await tryFetchApi("/api/auth-status");
+      const baseData = (await baseRes.json()) as { app_require_key?: boolean };
+      setKeyRequired(Boolean(baseData.app_require_key));
+
+      const headerKey = overrideKey ?? appKey;
+      if (!headerKey) {
+        setKeyValidity("not_set");
+        return;
+      }
+
+      const withHeaderRes = await tryFetchApi("/api/auth-status", {
+        headers: { "X-APP-KEY": headerKey },
+      });
+      const withHeaderData = (await withHeaderRes.json()) as { authorised?: boolean };
+      setKeyValidity(withHeaderData.authorised ? "valid" : "invalid");
+    } catch (err) {
+      console.error("Failed to check auth status", err);
+      setKeyValidity("unknown");
+      setKeyStatusError("Key status unavailable.");
+    }
+  };
+
+  useEffect(() => {
+    void refreshKeyStatus();
+  }, [appKey]);
+
+  useEffect(() => {
+    setDraftKey(appKey);
+  }, [appKey]);
 
   return (
     <div className="space-y-8">
@@ -34,11 +73,66 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
             <span className="text-slate-600">App Key</span>
             <input
               className="w-full rounded-lg border border-slate-200 px-3 py-2"
-              value={appKey}
-              onChange={(e) => onAppKeyChange(e.target.value)}
+              value={draftKey}
+              onChange={(e) => setDraftKey(e.target.value)}
               placeholder="Paste shared secret"
             />
           </label>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-cyan-700"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  if (draftKey.trim()) {
+                    window.localStorage.setItem("appKey", draftKey.trim());
+                  } else {
+                    window.localStorage.removeItem("appKey");
+                  }
+                }
+                onAppKeyChange(draftKey.trim());
+                void refreshKeyStatus(draftKey.trim());
+                setSavedMessageVisible(true);
+                setTimeout(() => setSavedMessageVisible(false), 2000);
+              }}
+            >
+              Save key
+            </button>
+            {savedMessageVisible && <span className="text-sm text-emerald-700">Saved</span>}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <p className="font-semibold text-slate-900">Key status</p>
+            <p>Key required by server: {keyRequired == null ? "Checking…" : keyRequired ? "Yes" : "No"}</p>
+            <p>
+              Current key:{" "}
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${
+                  keyValidity === "valid"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : keyValidity === "invalid"
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                }`}
+              >
+                {
+                  {
+                    unknown: "Unknown",
+                    valid: "Valid",
+                    invalid: "Invalid",
+                    not_set: "Not set",
+                  }[keyValidity]
+                }
+              </span>
+            </p>
+            {keyStatusError && <p className="text-rose-600">{keyStatusError}</p>}
+            <button
+              type="button"
+              className="mt-2 rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              onClick={() => void refreshKeyStatus()}
+            >
+              Refresh status
+            </button>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
