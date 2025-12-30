@@ -16,11 +16,13 @@ const {
   archiveTip,
   getStaff,
   insertStaff,
+  setStaffActive,
 } = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
 const { extractReceiptFromImage } = require("./ai/receiptExtractor");
+const { buildLocalFileRef } = require("./storage/localStorage");
 const OpenAI = require("openai");
 
 const PORT = process.env.PORT || 3002;
@@ -231,9 +233,11 @@ app.get("/api/tips", async (_req, res) => {
   }
 });
 
-app.get("/api/staff", async (_req, res) => {
+app.get("/api/staff", async (req, res) => {
   try {
-    const staff = await getStaff();
+    const includeInactiveParam = String(req.query.includeInactive || "").toLowerCase();
+    const includeInactive = includeInactiveParam === "1" || includeInactiveParam === "true";
+    const staff = await getStaff({ includeInactive });
     res.json({ staff });
   } catch (err) {
     console.error("Failed to fetch staff", err);
@@ -258,6 +262,36 @@ app.post("/api/staff", requireAppKey, async (req, res) => {
     }
   } catch (err) {
     console.error("Failed to insert staff", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/staff/:id/deactivate", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid staff id" });
+    }
+    const updated = await setStaffActive(id, false);
+    if (!updated) return res.status(404).json({ error: "Staff not found" });
+    res.json({ success: true, staff: updated });
+  } catch (err) {
+    console.error("Failed to deactivate staff", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/staff/:id/reactivate", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid staff id" });
+    }
+    const updated = await setStaffActive(id, true);
+    if (!updated) return res.status(404).json({ error: "Staff not found" });
+    res.json({ success: true, staff: updated });
+  } catch (err) {
+    console.error("Failed to reactivate staff", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -400,6 +434,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       console.warn("Upload attempted with no file");
       return res.status(400).json({ error: "No file uploaded" });
     }
+    const fileRef = buildLocalFileRef(req.file);
 
     console.log("Upload received:", {
       originalname: req.file.originalname,
@@ -424,6 +459,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       source: "Upload",
       week_label: weekLabelFromDate(toISO(due)),
       archived: 0,
+      file_ref: fileRef,
     };
 
     let rawText = "";
@@ -535,6 +571,8 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       console.error("AI extraction failed or returned null:", aiResult);
     }
 
+    mergedInvoice.file_ref = fileRef ?? mergedInvoice.file_ref;
+
     try {
       const inserted = await insertInvoice(mergedInvoice);
       return res.json({
@@ -547,6 +585,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
           source: "Upload",
         },
         invoice: inserted,
+        file_ref: fileRef ?? null,
       });
     } catch (err) {
       console.error("Upload insert error:", err);
@@ -564,6 +603,7 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
       console.warn("Receipt upload attempted with no file");
       return res.status(400).json({ error: "No file uploaded" });
     }
+    const fileRef = buildLocalFileRef(req.file);
 
     console.log("Receipt upload received:", {
       originalname: req.file.originalname,
@@ -592,6 +632,7 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
       approved_by: null,
       created_at: now,
       updated_at: now,
+      file_ref: fileRef,
     };
 
     let aiResult = null;
@@ -615,6 +656,8 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
       merged.week_label = merged.issue_date ? `Week of ${merged.issue_date}` : merged.week_label;
     }
 
+    merged.file_ref = fileRef ?? merged.file_ref;
+
     try {
       const inserted = await insertReceipt(merged);
       return res.json({
@@ -627,6 +670,7 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
           source: "Upload",
         },
         invoice: inserted,
+        file_ref: fileRef ?? null,
       });
     } catch (err) {
       console.error("Receipt upload insert error:", err);

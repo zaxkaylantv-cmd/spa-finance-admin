@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   approved_by TEXT,
   created_at TEXT,
   updated_at TEXT,
+  file_ref TEXT,
   archived INTEGER DEFAULT 0
 )`;
 
@@ -215,6 +216,7 @@ db.serialize(() => {
     addColumnIfMissing("approved_by", "ALTER TABLE invoices ADD COLUMN approved_by TEXT");
     addColumnIfMissing("created_at", "ALTER TABLE invoices ADD COLUMN created_at TEXT");
     addColumnIfMissing("updated_at", "ALTER TABLE invoices ADD COLUMN updated_at TEXT");
+    addColumnIfMissing("file_ref", "ALTER TABLE invoices ADD COLUMN file_ref TEXT");
 
     db.run("UPDATE invoices SET doc_type = 'invoice' WHERE doc_type IS NULL");
     db.run("UPDATE invoices SET file_kind = 'pdf' WHERE file_kind IS NULL");
@@ -396,6 +398,18 @@ const insertStaff = async ({ name }) => {
   });
 };
 
+const setStaffActive = async (id, active) => {
+  const now = new Date().toISOString();
+  const value = active ? 1 : 0;
+  await new Promise((resolve, reject) => {
+    db.run("UPDATE staff SET active = ?, updated_at = ? WHERE id = ?", [value, now, id], (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+  return findStaffById(id);
+};
+
 const insertTip = async ({ tip_date, method, amount, note, customer_name, staff_name }) => {
   const now = new Date().toISOString();
   return new Promise((resolve, reject) => {
@@ -449,8 +463,8 @@ const archiveTip = async (id) => {
 const insertInvoice = async (invoice) =>
   new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, file_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         invoice.supplier,
         invoice.invoice_number,
@@ -462,6 +476,7 @@ const insertInvoice = async (invoice) =>
         invoice.source,
         invoice.week_label,
         invoice.archived ?? 0,
+        invoice.file_ref ?? null,
       ],
       function (err) {
         if (err) return reject(err);
@@ -476,8 +491,8 @@ const insertInvoice = async (invoice) =>
 const insertReceipt = async (data) =>
   new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, doc_type, file_kind, merchant, vat_amount, approved_at, approved_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, doc_type, file_kind, merchant, vat_amount, approved_at, approved_by, created_at, updated_at, file_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.supplier,
         data.invoice_number,
@@ -497,6 +512,7 @@ const insertReceipt = async (data) =>
         data.approved_by,
         data.created_at,
         data.updated_at,
+        data.file_ref ?? null,
       ],
       function (err) {
         if (err) return reject(err);
@@ -539,4 +555,5 @@ module.exports = {
   archiveTip,
   getStaff,
   insertStaff,
+  setStaffActive,
 };

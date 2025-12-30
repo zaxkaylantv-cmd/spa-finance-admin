@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { tryFetchApi } from "../utils/api";
+import { apiUrl, tryFetchApi } from "../utils/api";
 
 type Tip = {
   id: number;
@@ -19,7 +19,11 @@ type Staff = {
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
-export default function TipsTab() {
+type Props = {
+  appKey: string;
+};
+
+export default function TipsTab({ appKey }: Props) {
   const today = useMemo(() => {
     const d = new Date();
     return d.toISOString().slice(0, 10);
@@ -84,11 +88,22 @@ export default function TipsTab() {
       if (note.trim()) body.note = note.trim();
       if (customerName.trim()) body.customer_name = customerName.trim();
       if (staffName.trim() && staffName !== "add_new") body.staff_name = staffName.trim();
-      const res = await tryFetchApi("/api/tips", {
+      const res = await fetch(apiUrl("/api/tips"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(appKey ? { "X-APP-KEY": appKey } : {}),
+        },
         body: JSON.stringify(body),
       });
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError("Unauthorised — please set the App key in Settings.");
+        } else {
+          setError("Could not add tip. Please check the details and try again.");
+        }
+        return;
+      }
       await res.json();
       setAmount("");
       setNote("");
@@ -110,6 +125,8 @@ export default function TipsTab() {
         <h1 className="text-3xl font-bold text-slate-900">Tips</h1>
         <p className="text-slate-500">Record cash and card tips and keep a simple audit trail.</p>
       </div>
+
+      <Totals tips={tips} />
 
       <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
         <div className="grid gap-4 md:grid-cols-4">
@@ -197,11 +214,22 @@ export default function TipsTab() {
                       return;
                     }
                     try {
-                      const res = await tryFetchApi("/api/staff", {
+                      const res = await fetch(apiUrl("/api/staff"), {
                         method: "POST",
-                        headers: { "Content-Type": "application/json" },
+                        headers: {
+                          "Content-Type": "application/json",
+                          ...(appKey ? { "X-APP-KEY": appKey } : {}),
+                        },
                         body: JSON.stringify({ name: trimmed }),
                       });
+                      if (!res.ok) {
+                        if (res.status === 401) {
+                          setStaffError("Unauthorised — please set the App key in Settings.");
+                        } else {
+                          setStaffError("Could not add staff (might already exist).");
+                        }
+                        return;
+                      }
                       const created = await res.json();
                       await loadStaff();
                       setStaffName(created?.name || trimmed);
@@ -247,27 +275,58 @@ export default function TipsTab() {
           <table className="min-w-full divide-y divide-slate-100 text-sm">
             <thead className="bg-slate-50">
               <tr>
-                {["Date", "Method", "Amount", "Customer", "Received by", "Note"].map((col) => (
-                  <th key={col} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {tips.map((tip) => (
-                <tr key={tip.id} className="hover:bg-slate-50/70">
-                  <td className="px-3 py-3 text-slate-700">{tip.tip_date || "—"}</td>
-                  <td className="px-3 py-3 text-slate-700">{tip.method}</td>
-                  <td className="px-3 py-3 font-semibold text-slate-900">{currency.format(Number(tip.amount || 0))}</td>
-                  <td className="px-3 py-3 text-slate-700">{tip.customer_name || "—"}</td>
-                  <td className="px-3 py-3 text-slate-700">{tip.staff_name || "—"}</td>
-                  <td className="px-3 py-3 text-slate-700">{tip.note || "—"}</td>
-                </tr>
+              {["Date", "Method", "Amount", "Customer", "Received by", "Note", "Actions"].map((col) => (
+                <th key={col} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {col}
+                </th>
               ))}
-              {tips.length === 0 && (
-                <tr>
-                  <td className="px-3 py-4 text-slate-500" colSpan={6}>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {tips.map((tip) => (
+              <tr key={tip.id} className="hover:bg-slate-50/70">
+                <td className="px-3 py-3 text-slate-700">{tip.tip_date || "—"}</td>
+                <td className="px-3 py-3 text-slate-700">{tip.method}</td>
+                <td className="px-3 py-3 font-semibold text-slate-900">{currency.format(Number(tip.amount || 0))}</td>
+                <td className="px-3 py-3 text-slate-700">{tip.customer_name || "—"}</td>
+                <td className="px-3 py-3 text-slate-700">{tip.staff_name || "—"}</td>
+                <td className="px-3 py-3 text-slate-700">{tip.note || "—"}</td>
+                <td className="px-3 py-3 text-slate-700">
+                  <button
+                    type="button"
+                    className="text-cyan-700 hover:text-cyan-900"
+                    onClick={async () => {
+                      if (!window.confirm("Archive this tip?")) return;
+                      try {
+                        const res = await fetch(apiUrl(`/api/tips/${tip.id}/archive`), {
+                          method: "POST",
+                          headers: {
+                            ...(appKey ? { "X-APP-KEY": appKey } : {}),
+                          },
+                        });
+                        if (!res.ok) {
+                          if (res.status === 401) {
+                            setError("Unauthorised — please set the App key in Settings.");
+                          } else {
+                            setError("Could not archive tip.");
+                          }
+                          return;
+                        }
+                        await loadTips();
+                      } catch (err) {
+                        console.error("Failed to archive tip", err);
+                        setError("Could not archive tip.");
+                      }
+                    }}
+                  >
+                    Archive
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {tips.length === 0 && (
+              <tr>
+                  <td className="px-3 py-4 text-slate-500" colSpan={7}>
                     No tips recorded yet.
                   </td>
                 </tr>
@@ -276,6 +335,82 @@ export default function TipsTab() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+type TotalsProps = {
+  tips: Tip[];
+};
+
+function Totals({ tips }: TotalsProps) {
+  const parseDate = (value?: string | null) => {
+    if (!value) return null;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const weekStart = (() => {
+    const d = new Date(now);
+    const day = d.getDay(); // 0 = Sunday
+    const diff = (day === 0 ? -6 : 1) - day; // Monday as start
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  })();
+  const weekEnd = (() => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + 6);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  })();
+
+  const isSameDay = (d: Date, iso: string) => iso === todayStr && d.toISOString().slice(0, 10) === todayStr;
+  const isInWeek = (d: Date) => d >= weekStart && d <= weekEnd;
+  const isInMonth = (d: Date) => d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+
+  let totalToday = 0;
+  let totalWeek = 0;
+  let totalMonth = 0;
+  let totalTodayCash = 0;
+  let totalTodayCard = 0;
+
+  tips.forEach((tip) => {
+    const d = parseDate(tip.tip_date);
+    if (!d) return;
+    if (isSameDay(d, tip.tip_date)) {
+      totalToday += Number(tip.amount) || 0;
+      if ((tip.method || "").toLowerCase() === "cash") totalTodayCash += Number(tip.amount) || 0;
+      if ((tip.method || "").toLowerCase() === "card") totalTodayCard += Number(tip.amount) || 0;
+    }
+    if (isInWeek(d)) totalWeek += Number(tip.amount) || 0;
+    if (isInMonth(d)) totalMonth += Number(tip.amount) || 0;
+  });
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-lg font-semibold text-slate-900">Totals</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+        <TotalCard label="Today" value={totalToday} />
+        <TotalCard label="This week" value={totalWeek} />
+        <TotalCard label="This month" value={totalMonth} />
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Today by method</p>
+          <p className="mt-1 text-slate-800">Cash: {currency.format(totalTodayCash)}</p>
+          <p className="text-slate-800">Card: {currency.format(totalTodayCard)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TotalCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-900">{currency.format(value)}</p>
     </div>
   );
 }

@@ -161,7 +161,7 @@ export default function App() {
           />
         )}
         {activeTab === "cashflow" && <CashflowTab invoices={activeInvoices} />}
-        {activeTab === "tips" && <TipsTab />}
+        {activeTab === "tips" && <TipsTab appKey={appKey} />}
         {activeTab === "settings" && <SettingsTab appKey={appKey} onAppKeyChange={setAppKey} />}
       </main>
     </div>
