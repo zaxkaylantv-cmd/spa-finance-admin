@@ -17,6 +17,8 @@ const {
   getStaff,
   insertStaff,
   setStaffActive,
+  insertFile,
+  getFilesForOwner,
 } = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
@@ -229,6 +231,38 @@ app.get("/api/tips", async (_req, res) => {
     res.json({ tips });
   } catch (err) {
     console.error("Failed to fetch tips", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/invoices/:id/files", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid invoice id" });
+    }
+    const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
+    const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
+    const files = await getFilesForOwner({ owner_type: "invoice", owner_id: id, includeArchived });
+    res.json({ files });
+  } catch (err) {
+    console.error("Failed to fetch invoice files", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/receipts/:id/files", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid receipt id" });
+    }
+    const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
+    const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
+    const files = await getFilesForOwner({ owner_type: "receipt", owner_id: id, includeArchived });
+    res.json({ files });
+  } catch (err) {
+    console.error("Failed to fetch receipt files", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -575,6 +609,21 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
 
     try {
       const inserted = await insertInvoice(mergedInvoice);
+      let storedFile = null;
+      if (inserted?.id) {
+        try {
+          storedFile = await insertFile({
+            owner_type: "invoice",
+            owner_id: inserted.id,
+            file_ref: fileRef || null,
+            original_filename: req.file.originalname || null,
+            mime_type: req.file.mimetype || null,
+            file_size: req.file.size || null,
+          });
+        } catch (fileErr) {
+          console.error("Failed to insert file metadata", fileErr);
+        }
+      }
       return res.json({
         status: "ok",
         message: "File uploaded",
@@ -586,6 +635,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         },
         invoice: inserted,
         file_ref: fileRef ?? null,
+        file_record: storedFile,
       });
     } catch (err) {
       console.error("Upload insert error:", err);
@@ -660,6 +710,21 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
 
     try {
       const inserted = await insertReceipt(merged);
+      let storedFile = null;
+      if (inserted?.id) {
+        try {
+          storedFile = await insertFile({
+            owner_type: "receipt",
+            owner_id: inserted.id,
+            file_ref: fileRef || null,
+            original_filename: req.file.originalname || null,
+            mime_type: req.file.mimetype || null,
+            file_size: req.file.size || null,
+          });
+        } catch (fileErr) {
+          console.error("Failed to insert file metadata", fileErr);
+        }
+      }
       return res.json({
         status: "ok",
         message: "Receipt uploaded",
@@ -671,6 +736,7 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
         },
         invoice: inserted,
         file_ref: fileRef ?? null,
+        file_record: storedFile,
       });
     } catch (err) {
       console.error("Receipt upload insert error:", err);

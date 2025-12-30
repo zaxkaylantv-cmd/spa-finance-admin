@@ -45,6 +45,20 @@ CREATE TABLE IF NOT EXISTS tips (
   archived INTEGER DEFAULT 0
 )`;
 
+const CREATE_FILES_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_type TEXT NOT NULL,
+  owner_id INTEGER NOT NULL,
+  file_ref TEXT NOT NULL,
+  original_filename TEXT,
+  mime_type TEXT,
+  file_size INTEGER,
+  created_at TEXT,
+  updated_at TEXT,
+  archived INTEGER DEFAULT 0
+)`;
+
 const CREATE_STAFF_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS staff (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -249,6 +263,8 @@ db.serialize(() => {
     addColumnIfMissing("updated_at", "ALTER TABLE tips ADD COLUMN updated_at TEXT");
     addColumnIfMissing("archived", "ALTER TABLE tips ADD COLUMN archived INTEGER DEFAULT 0");
   });
+  db.run(CREATE_FILES_TABLE_SQL);
+  db.run("CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_type, owner_id)");
   db.run(CREATE_STAFF_TABLE_SQL);
   db.all("PRAGMA table_info(staff);", (err, rows) => {
     if (err) {
@@ -328,6 +344,14 @@ const findTipById = (id) =>
 const findStaffById = (id) =>
   new Promise((resolve, reject) => {
     db.get("SELECT * FROM staff WHERE id = ?", [id], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+
+const findFileById = (id) =>
+  new Promise((resolve, reject) => {
+    db.get("SELECT * FROM files WHERE id = ?", [id], (err, row) => {
       if (err) return reject(err);
       resolve(row);
     });
@@ -488,6 +512,46 @@ const insertInvoice = async (invoice) =>
     );
   });
 
+const insertFile = async ({ owner_type, owner_id, file_ref, original_filename, mime_type, file_size }) => {
+  const now = new Date().toISOString();
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO files (owner_type, owner_id, file_ref, original_filename, mime_type, file_size, created_at, updated_at, archived)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [owner_type, owner_id, file_ref, original_filename ?? null, mime_type ?? null, file_size ?? null, now, now],
+      function (err) {
+        if (err) return reject(err);
+        const id = this.lastID;
+        findFileById(id)
+          .then((row) => resolve(row))
+          .catch(reject);
+      },
+    );
+  });
+};
+
+const getFilesForOwner = ({ owner_type, owner_id, includeArchived = false }) =>
+  new Promise((resolve, reject) => {
+    const sql = includeArchived
+      ? "SELECT * FROM files WHERE owner_type = ? AND owner_id = ?"
+      : "SELECT * FROM files WHERE owner_type = ? AND owner_id = ? AND archived = 0";
+    db.all(sql, [owner_type, owner_id], (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+
+const archiveFile = async (id) => {
+  const now = new Date().toISOString();
+  await new Promise((resolve, reject) => {
+    db.run("UPDATE files SET archived = 1, updated_at = ? WHERE id = ?", [now, id], (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+  return findFileById(id);
+};
+
 const insertReceipt = async (data) =>
   new Promise((resolve, reject) => {
     db.run(
@@ -556,4 +620,7 @@ module.exports = {
   getStaff,
   insertStaff,
   setStaffActive,
+  insertFile,
+  getFilesForOwner,
+  archiveFile,
 };
