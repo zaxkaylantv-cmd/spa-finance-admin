@@ -3,161 +3,32 @@ Status
 
 Current focus: Slice 1 (invoice + receipt capture) stabilisation and production hardening.
 
-Next immediate step when resuming work: Test App Key (X-APP-KEY) end-to-end across all API routes and UI flows.
+Next immediate step when resuming work: Begin Storage Strategy Phase 2 (metadata + safe view/download) design and implementation.
 
 Slice 1 — Must Deliver (Invoice + Receipts Capture)
-A) App Key (Access Control) — Critical
-
-Validate “App Key required” behaviour
-
-Backend must reject requests without valid X-APP-KEY (where required).
-
-Frontend must:
-
-Prompt/store app key (local storage is fine for now).
-
-Include header in all relevant requests via shared API helper.
-
-Show clear “Not authorised / wrong key” messaging.
-
-Define which endpoints require app key
-
-Read-only endpoints may be allowed without key during pilot, but uploads/edits/actions must require it.
-
-Document the rule in backend README and in context.md.
-
-Automated check
-
-Add a minimal smoke test script (curl examples in README are fine initially).
-
-Later: add a lightweight test file (Node test runner) if time.
+A) DONE — App Key (Access Control)
+- Key gate works locally and via Nginx when the key is sent correctly; GET /api/auth-status added (no secret leakage).
+- Settings UI now shows key required/validity (colour-coded), has Save key, and Tips writes include X-APP-KEY with 401-specific messaging.
 
 B) Invoices — Capture + Workflow
-
-Upload invoice file
-
-Supported types: PDF/JPG/PNG/DOCX (confirm actual allowed list).
-
-Store:
-
-File metadata
-
-Link/path to file
-
-Extracted fields (supplier, invoice number, dates, amount, VAT, category, status)
-
-Source = Upload / Email (even if email ingestion is “later”)
-
-Manual edit / correction
-
-Edit extracted fields in UI
-
-PATCH persists to backend
-
-Ensure TypeScript build has no unused vars; no silent failures
-
-Statuses
-
-Minimum: Captured, Needs info, Ready, Approved
-
-“Overdue / Due soon / Upcoming” can be calculated from due date, but keep status separate.
-
-Archive
-
-Archive invoice (soft remove from default view)
-
-Restore from archive
-
-Deletion rules (if any) should be explicit and safe (prefer soft-delete only for now)
+- Upload invoice files (PDF/JPG/PNG/DOCX) with extracted fields stored; PATCH edits persist; archive supported. File_ref now stored for new uploads.
+- Statuses remain calculated where applicable; archive is soft-delete.
 
 C) Receipts — Capture (Paper Receipts)
-
-Receipt upload flow
-
-Upload photos (JPG/PNG/PDF)
-
-Store metadata + extracted fields:
-
-merchant/supplier
-
-date
-
-amount
-
-VAT (if possible)
-
-payment method (cash/card if known)
-
-category
-
-UI should make “quick corrections” easy.
-
-Receipt–Invoice linking (optional for Slice 1)
-
-Simple association if user selects an invoice and attaches receipt(s).
-
-If not implemented, store separately with a “linkedInvoiceId” nullable.
+- Receipt uploads (JPG/PNG/PDF) store metadata and extracted fields; optional AI extraction; stored separately with doc_type='receipt'. File_ref stored for new uploads.
+- Linking to invoices remains optional (future).
 
 D) Weekly Finance Pack (Pilot-level, minimal)
-
-“Due this week” list
-
-Overdue list
-
-Totals by category
-
-Export pack
-
-CSV export is enough for Slice 1
-
-PDF export can be later
+- Due/overdue lists and totals available; export remains CSV-level for now.
 
 Phase 2 — Tips Tab (New Requirement)
-E) Tips Tracking (Cash + Card)
+E) DONE — Tips Tracking (Cash + Card)
+- Tips tab exists; data model includes tip_date, method (cash/card), amount, note, customer_name, staff_name, archived; staff table with active/inactive.
+- Form supports customer + received-by dropdown, inline “Add new staff”; totals added (today/week/month + today cash/card split); UI archive via POST /api/tips/:id/archive.
 
-Add a new top-level tab: Tips
-
-Two entry modes
-
-Cash tips (manual quick entry)
-
-date
-
-staff member (optional first version)
-
-amount
-
-notes (optional)
-
-Card tips tracking
-
-Either manual entry initially, or imported/derived later
-
-Track totals per day/week
-
-Views
-
-Daily totals
-
-Weekly totals
-
-Per-staff totals (optional if staff list exists)
-
-Data model
-
-tips table with:
-
-id
-
-date
-
-amount
-
-method (cash | card)
-
-staffName/staffId (nullable)
-
-createdAt/updatedAt
+Production Direction — Data Ownership (Google Drive, minimal sensitive data)
+F) Storage Strategy — Design Now, Implement Incrementally
+- File_ref persisted on uploads (local:uploads/<filename>); storage boundary helper in place. Drive migration remains future work.
 
 Production Direction — Data Ownership (Google Drive, minimal sensitive data)
 F) Storage Strategy — Design Now, Implement Incrementally
@@ -270,6 +141,18 @@ Do we want staff list (users) in Slice 1 or keep staff name as free text?
 
 Receipt linking: required for Slice 1 or Phase 2?
 
+Next steps (practical, ordered)
+1) Storage Strategy Phase 2:
+   - Persist minimal file metadata (original filename, mime type, size) alongside file_ref
+   - Add safe “View/Download” handling for local: refs (and later gdrive:)
+   - Define Google Drive provider integration plan (service account vs OAuth, folder structure, permissions)
+2) Optional UI admin:
+   - Add a simple “Manage staff” section to deactivate/reactivate staff from UI (keep history)
+3) Invoice/Receipt workflow completion:
+   - Ensure invoice/receipt rows store file metadata + file_ref
+   - Confirm allowed upload types and document them
+   - Add archive/restore views for invoices/receipts if not already
+
 ---
 
 ## Deferred / Troubleshooting — API auth key (X-APP-KEY) returning 401
@@ -302,4 +185,3 @@ Protect `/spa-finance-api/*` with a simple header-based gate (`X-APP-KEY`) using
 - Add a temporary debug endpoint (dev-only) that returns whether `x-app-key` header is present (never echo the secret).
 - Ensure `.env` line endings are LF and strip trailing whitespace.
 - Decide final auth UX: human-friendly passphrase vs autogenerated token; store it once in the UI (localStorage) and provide a “copy key” + “reset key” flow.
-
