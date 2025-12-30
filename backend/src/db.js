@@ -623,4 +623,5 @@ module.exports = {
   insertFile,
   getFilesForOwner,
   archiveFile,
+  findFileById,
 };

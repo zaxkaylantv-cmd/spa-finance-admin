@@ -19,6 +19,7 @@ const {
   setStaffActive,
   insertFile,
   getFilesForOwner,
+  findFileById,
 } = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
@@ -26,6 +27,7 @@ const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
 const { extractReceiptFromImage } = require("./ai/receiptExtractor");
 const { buildLocalFileRef } = require("./storage/localStorage");
 const OpenAI = require("openai");
+const { createReadStream } = require("fs");
 
 const PORT = process.env.PORT || 3002;
 const app = express();
@@ -263,6 +265,57 @@ app.get("/api/receipts/:id/files", async (req, res) => {
     res.json({ files });
   } catch (err) {
     console.error("Failed to fetch receipt files", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/files/:id/download", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid file id" });
+    }
+    const record = await findFileById(id);
+    if (!record) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const ref = record.file_ref || "";
+    if (ref.startsWith("gdrive:")) {
+      return res.status(501).json({ error: "Google Drive storage not yet configured" });
+    }
+
+    if (!ref.startsWith("local:uploads/")) {
+      return res.status(400).json({ error: "Unsupported file reference" });
+    }
+
+    const filename = ref.replace("local:uploads/", "");
+    if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+      return res.status(400).json({ error: "Invalid file reference" });
+    }
+
+    const absolutePath = path.join(uploadDir, filename);
+    try {
+      const stream = createReadStream(absolutePath);
+      const mime = record.mime_type || "application/octet-stream";
+      const downloadName = record.original_filename || filename;
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+      stream.on("error", (err) => {
+        console.error("File stream error", err);
+        if (!res.headersSent) {
+          res.status(404).json({ error: "File not found" });
+        } else {
+          res.destroy();
+        }
+      });
+      stream.pipe(res);
+    } catch (err) {
+      console.error("File read error", err);
+      return res.status(404).json({ error: "File not found" });
+    }
+  } catch (err) {
+    console.error("Failed to download file", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
