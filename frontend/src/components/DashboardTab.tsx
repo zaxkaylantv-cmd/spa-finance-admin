@@ -171,7 +171,7 @@ export default function DashboardTab({ invoices }: Props) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Due in next 7 days"
           amount={currency.format(dueIn7Amount)}

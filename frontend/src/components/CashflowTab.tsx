@@ -143,18 +143,20 @@ export default function CashflowTab({ invoices }: Props) {
           </div>
         </div>
         <div className="mt-4 flex flex-col gap-4">
-          <div className="flex items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            {outgoingTrend.map((point) => {
-              const height = Math.max(40, (point.amount / maxOutgoing) * 160);
-              return (
-                <div key={point.label} className="flex-1">
-                  <div className="flex h-44 items-end justify-center rounded-xl border border-slate-200 bg-white">
-                    <div className="w-10 rounded-lg bg-emerald-300" style={{ height }} />
+          <div className="overflow-x-auto">
+            <div className="flex min-w-[520px] items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              {outgoingTrend.map((point) => {
+                const height = Math.max(40, (point.amount / maxOutgoing) * 160);
+                return (
+                  <div key={point.label} className="flex-1 min-w-[120px]">
+                    <div className="flex h-44 items-end justify-center rounded-xl border border-slate-200 bg-white">
+                      <div className="w-10 rounded-lg bg-emerald-300" style={{ height }} />
+                    </div>
+                    <p className="pt-2 text-center text-xs font-semibold text-slate-500">{point.label}</p>
                   </div>
-                  <p className="pt-2 text-center text-xs font-semibold text-slate-500">{point.label}</p>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

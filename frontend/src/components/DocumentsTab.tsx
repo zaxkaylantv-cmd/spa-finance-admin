@@ -121,6 +121,9 @@ export default function DocumentsTab({
   const [emailDraftStatus, setEmailDraftStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
   const [inboxStatus, setInboxStatus] = useState<string | null>(null);
+  const [notesValue, setNotesValue] = useState("");
+  const [notesSavedValue, setNotesSavedValue] = useState("");
+  const [notesStatus, setNotesStatus] = useState<"idle" | "saving" | "saved" | "local" | "error">("idle");
   const [editValues, setEditValues] = useState({
     supplier: "",
     invoiceNumber: "",
@@ -197,6 +200,13 @@ export default function DocumentsTab({
       setFileMessage(null);
       setAiActions(null);
       setAiMessage(null);
+      const localNotesKey = `spa_invoice_notes_${selectedDoc.id}`;
+      const localNotes =
+        typeof window !== "undefined" ? window.localStorage.getItem(localNotesKey) || undefined : undefined;
+      const initialNotes = selectedDoc.notes ?? localNotes ?? "";
+      setNotesValue(initialNotes);
+      setNotesSavedValue(initialNotes);
+      setNotesStatus("idle");
       const loadFiles = async () => {
         try {
           const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}/files`, {
@@ -340,6 +350,37 @@ export default function DocumentsTab({
     const num = Number(value);
     if (!Number.isFinite(num)) return "—";
     return currency.format(num);
+  };
+
+  const saveNotes = async () => {
+    if (!selectedDoc) return;
+    const localNotesKey = `spa_invoice_notes_${selectedDoc.id}`;
+    setNotesStatus("saving");
+    try {
+      const res = await fetch(apiUrl(`/api/invoices/${selectedDoc.id}`), {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(appKey ? { "X-APP-KEY": appKey } : {}),
+        },
+        body: JSON.stringify({ notes: notesValue }),
+      });
+      if (!res.ok) {
+        throw new Error(`Bad status ${res.status}`);
+      }
+      setNotesSavedValue(notesValue);
+      setNotesStatus("saved");
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(localNotesKey, notesValue);
+      }
+    } catch (err) {
+      console.error("Notes save failed, storing locally", err);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(localNotesKey, notesValue);
+      }
+      setNotesSavedValue(notesValue);
+      setNotesStatus("local");
+    }
   };
 
   const handleDownloadFile = async (fileId?: number | null, fileRef?: string | null) => {
@@ -987,8 +1028,28 @@ export default function DocumentsTab({
                     <textarea
                       className="rounded-lg border border-slate-200 px-3 py-2"
                       rows={3}
-                      defaultValue={selectedDoc.notes ?? "Add internal context or routing notes here."}
+                      value={notesValue}
+                      onChange={(e) => setNotesValue(e.target.value)}
+                      placeholder="Add internal context or routing notes here."
                     />
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <button
+                        type="button"
+                        className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-60"
+                        disabled={notesValue === notesSavedValue}
+                        onClick={() => void saveNotes()}
+                      >
+                        Save notes
+                      </button>
+                      {notesStatus === "saving" && <span className="text-xs text-slate-600">Saving…</span>}
+                      {notesStatus === "saved" && <span className="text-xs text-emerald-700">Saved</span>}
+                      {notesStatus === "local" && (
+                        <span className="text-xs text-amber-700">Couldn&apos;t save (saved on this device)</span>
+                      )}
+                      {notesStatus === "error" && (
+                        <span className="text-xs text-rose-700">Couldn&apos;t save notes.</span>
+                      )}
+                    </div>
                   </label>
                 </div>
               </div>

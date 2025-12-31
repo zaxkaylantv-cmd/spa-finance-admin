@@ -130,12 +130,12 @@ export default function App() {
               {company}
             </div>
             <div className="hidden h-4 w-px bg-slate-200 sm:block" />
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${
                     activeTab === tab.key
                       ? "bg-slate-600 text-white shadow-sm"
                       : "bg-white text-slate-600 border border-transparent hover:border-[color:var(--spa-border)] hover:bg-[color:var(--spa-wash)] hover:text-slate-900"

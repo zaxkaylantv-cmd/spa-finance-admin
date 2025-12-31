@@ -196,7 +196,7 @@ export default function TipsTab({ appKey }: Props) {
           {addingStaff && (
             <div className="space-y-1 text-sm md:col-span-2">
               <span className="text-slate-700">Add new staff</span>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   className="w-full rounded-lg border border-slate-200 px-3 py-2"
                   value={newStaffName}
