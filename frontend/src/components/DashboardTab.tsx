@@ -16,9 +16,9 @@ const isOutstanding = (inv: Invoice): boolean => {
 };
 
 const statusStyles: Record<string, string> = {
-  Overdue: "bg-rose-50 text-rose-700 border-rose-100",
-  "Due soon": "bg-amber-50 text-amber-700 border-amber-100",
-  Upcoming: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  Overdue: "bg-rose-50 text-rose-700 border-rose-200",
+  "Due soon": "bg-amber-50 text-amber-700 border-amber-200",
+  Upcoming: "bg-[color:var(--spa-wash)] text-slate-800 border-[color:var(--spa-border)]",
   Unpaid: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
@@ -144,12 +144,12 @@ export default function DashboardTab({ invoices }: Props) {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.16em] text-cyan-600">Overview</p>
+          <p className="text-sm uppercase tracking-[0.16em] text-[color:var(--spa-muted)]">At a glance</p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
           <p className="text-slate-500">A clear, AI-supported view of what&apos;s due, what&apos;s overdue, and where to focus.</p>
         </div>
-        <div className="inline-flex items-center rounded-lg border border-cyan-100 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">
-          <CalendarRange className="mr-2 h-4 w-4 text-cyan-600" />
+        <div className="inline-flex items-center rounded-lg border border-[color:var(--spa-border)] bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">
+          <CalendarRange className="mr-2 h-4 w-4 text-[color:var(--spa-muted)]" />
           <select
             className="bg-transparent focus:outline-none"
             value={dateRangeFilter}
@@ -187,16 +187,16 @@ export default function DashboardTab({ invoices }: Props) {
         <MetricCard
           title="Overdue"
           amount={currency.format(overdueAmount)}
-          hint={`${metrics?.countOverdue ?? overdue.length} invoices to resolve`}
+          hint={`${metrics?.countOverdue ?? overdue.length} invoices to action`}
           gradientIndex={2}
         />
         <MetricCard
-          title="Largest upcoming bill"
+          title="Largest payment due"
           amount={largestUpcoming ? currency.format(largestUpcoming.amount) : "£0"}
           hint={
             largestUpcoming
               ? `${largestUpcoming.supplier} · Due ${formatDisplayDate(getInvoiceDueDate(largestUpcoming))}`
-              : "No large bills this cycle"
+              : "No large payments this cycle"
           }
           gradientIndex={3}
           kicker="watch"
@@ -206,8 +206,8 @@ export default function DashboardTab({ invoices }: Props) {
       <div className="space-y-6">
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="px-4 py-3 border-b border-slate-100">
-            <p className="text-lg font-semibold text-slate-900">Needs your attention</p>
-            <p className="text-sm text-slate-500">Top invoices that are overdue or coming due.</p>
+            <p className="text-lg font-semibold text-slate-900">Action needed</p>
+            <p className="text-sm text-slate-500">Invoices that are due soon or overdue.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -255,9 +255,9 @@ export default function DashboardTab({ invoices }: Props) {
             </table>
           </div>
         </div>
-        <div className="rounded-2xl border border-cyan-100 bg-gradient-to-r from-cyan-50 via-blue-50 to-purple-50 p-4 shadow-[0_18px_28px_rgba(0,184,255,0.12)]">
-          <div className="flex flex-col items-center gap-3 text-center text-sm text-slate-800">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/70 text-cyan-600 shadow-sm">
+        <div className="rounded-2xl border border-[color:var(--spa-border)] bg-white p-4 text-center shadow-sm">
+          <div className="flex flex-col items-center gap-3 text-sm text-slate-800">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--spa-wash)] text-slate-700 shadow-sm">
               <Sparkles className="h-5 w-5" />
             </div>
             <div className="space-y-2">
@@ -265,26 +265,23 @@ export default function DashboardTab({ invoices }: Props) {
               {summaryLoading && <p>Analysing your cashflow…</p>}
               {summaryError && <p className="text-rose-600">AI summary unavailable. Please try again later.</p>}
               {!summaryLoading && !summaryError && (
-                <div className="text-left">
+                <div className="space-y-1">
                   <p className="text-sm text-slate-600">
                     <strong>AI summary for this period:</strong>
                   </p>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    <li>• Cash due in the next 30 days: {currency.format(dueIn30Amount)} across {dueIn30.length} invoice(s).</li>
-                    <li>
-                      • Overdue exposure: {currency.format(overdueAmount)} across {overdue.length} invoice(s)
-                      {largestOverdue ? `; largest single bill around ${currency.format(largestOverdue.amount)}.` : "."}
-                    </li>
-                    <li>
-                      • Overall outstanding (overdue + upcoming): {currency.format(totalOutstandingAmount)} – plan cash to comfortably cover this runway.
-                    </li>
-                  </ul>
-                  <p className="mt-2 text-sm text-slate-600">
-                    Kalyan AI suggests tackling overdue items first, then scheduling upcoming payments to smooth the next few weeks of cash outflow.
+                  <p className="text-sm text-slate-600">
+                    Cash due next 30 days: {currency.format(dueIn30Amount)} across {dueIn30.length} invoice(s).
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    Overdue exposure: {currency.format(overdueAmount)} across {overdue.length} invoice(s)
+                    {largestOverdue ? `; largest about ${currency.format(largestOverdue.amount)}.` : "."}
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    Outstanding total: {currency.format(totalOutstandingAmount)} — plan to cover this comfortably.
                   </p>
                 </div>
               )}
-              {!summaryLoading && !summaryError && summary && <p className="whitespace-pre-line">{summary}</p>}
+              {!summaryLoading && !summaryError && summary && <p className="whitespace-pre-line text-slate-700">{summary}</p>}
               {!summaryLoading && !summaryError && !summary && (
                 <p className="text-slate-700">Summary not available yet. Please try again shortly.</p>
               )}

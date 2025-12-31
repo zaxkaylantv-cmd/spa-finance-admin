@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS files (
   archived INTEGER DEFAULT 0
 )`;
 
+const CREATE_AUTO_APPROVAL_RULES_SQL = `
+CREATE TABLE IF NOT EXISTS auto_approval_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier TEXT NOT NULL,
+  monthly_limit REAL NOT NULL,
+  created_at TEXT
+)`;
+
 const CREATE_STAFF_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS staff (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -191,7 +199,7 @@ const seedInvoices = [
     week_label: "Week of 12 Jan 2026",
   },
   {
-    supplier: "Kalyan AI Consulting",
+    supplier: "The Spa by Kaajal Consulting",
     invoice_number: "KAC-2026-012",
     issue_date: "2026-01-10",
     due_date: "2026-02-10",
@@ -265,6 +273,7 @@ db.serialize(() => {
   });
   db.run(CREATE_FILES_TABLE_SQL);
   db.run("CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_type, owner_id)");
+  db.run(CREATE_AUTO_APPROVAL_RULES_SQL);
   db.run(CREATE_STAFF_TABLE_SQL);
   db.all("PRAGMA table_info(staff);", (err, rows) => {
     if (err) {
@@ -352,6 +361,14 @@ const findStaffById = (id) =>
 const findFileById = (id) =>
   new Promise((resolve, reject) => {
     db.get("SELECT * FROM files WHERE id = ?", [id], (err, row) => {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+
+const findFileByRef = (file_ref) =>
+  new Promise((resolve, reject) => {
+    db.get("SELECT * FROM files WHERE file_ref = ?", [file_ref], (err, row) => {
       if (err) return reject(err);
       resolve(row);
     });
@@ -552,6 +569,52 @@ const archiveFile = async (id) => {
   return findFileById(id);
 };
 
+const getRecentInvoicesBySupplier = (supplier, limit = 10) =>
+  new Promise((resolve, reject) => {
+    db.all(
+      "SELECT * FROM invoices WHERE supplier = ? ORDER BY id DESC LIMIT ?",
+      [supplier, limit],
+      (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      },
+    );
+  });
+
+const insertAutoApprovalRule = async ({ supplier, monthly_limit }) => {
+  const now = new Date().toISOString();
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO auto_approval_rules (supplier, monthly_limit, created_at)
+       VALUES (?, ?, ?)`,
+      [supplier, monthly_limit, now],
+      function (err) {
+        if (err) return reject(err);
+        const id = this.lastID;
+        db.get("SELECT * FROM auto_approval_rules WHERE id = ?", [id], (getErr, row) => {
+          if (getErr) return reject(getErr);
+          resolve(row);
+        });
+      },
+    );
+  });
+};
+
+const getAutoApprovalRules = ({ supplier } = {}) =>
+  new Promise((resolve, reject) => {
+    if (supplier) {
+      db.all("SELECT * FROM auto_approval_rules WHERE supplier = ? ORDER BY id DESC", [supplier], (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    } else {
+      db.all("SELECT * FROM auto_approval_rules ORDER BY id DESC", (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    }
+  });
+
 const insertReceipt = async (data) =>
   new Promise((resolve, reject) => {
     db.run(
@@ -624,4 +687,9 @@ module.exports = {
   getFilesForOwner,
   archiveFile,
   findFileById,
+  findFileByRef,
+  findInvoiceById,
+  getRecentInvoicesBySupplier,
+  insertAutoApprovalRule,
+  getAutoApprovalRules,
 };

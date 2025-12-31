@@ -33,6 +33,11 @@ F) Storage Strategy — Design Now, Implement Incrementally
 G) Files API
 - files table added with owner_type/owner_id + metadata; GET /api/invoices/:id/files and /api/receipts/:id/files list rows; GET /api/files/:id/download streams local files (key-gated) and returns 501 for gdrive refs.
 
+H) Modal UX fixes (invoices)
+- “Open” now downloads linked files when present; shows “No file attached” or “Google Drive files coming soon” when not available.
+- Auto-approval action left as disabled “Coming soon” until backend exists.
+- Draft email now copies a prefilled message; amounts/dates guard against NaN (show “—” when missing).
+
 Production Direction — Data Ownership (Google Drive, minimal sensitive data)
 F) Storage Strategy — Design Now, Implement Incrementally
 

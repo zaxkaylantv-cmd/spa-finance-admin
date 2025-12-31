@@ -7,10 +7,10 @@ type MetricCardProps = {
 };
 
 const gradients = [
-  "from-stone-100 via-emerald-50 to-slate-50",
-  "from-slate-100 via-stone-100 to-emerald-50",
-  "from-emerald-50 via-stone-100 to-slate-50",
-  "from-stone-100 via-slate-50 to-emerald-50",
+  "from-[color:var(--spa-wash)] via-[color:var(--spa-border)] to-[color:var(--spa-surface)]",
+  "from-[color:var(--spa-surface)] via-[color:var(--spa-border)] to-[color:var(--spa-wash)]",
+  "from-[color:var(--spa-wash)] via-[color:var(--spa-accent-soft)] to-[color:var(--spa-wash)]",
+  "from-white via-[color:var(--spa-wash)] to-[color:var(--spa-border)]",
 ];
 
 export default function MetricCard({ title, amount, hint, gradientIndex = 0, kicker }: MetricCardProps) {

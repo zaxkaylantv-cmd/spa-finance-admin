@@ -101,9 +101,9 @@ export default function App() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
-    { key: "documents", label: "Documents" },
-    { key: "cashflow", label: "Cashflow" },
-    { key: "tips", label: "Tips" },
+    { key: "documents", label: "Invoices & Receipts" },
+    { key: "cashflow", label: "Cash Flow" },
+    { key: "tips", label: "Tips & Gratuities" },
     { key: "settings", label: "Settings" },
   ];
 
@@ -112,14 +112,13 @@ export default function App() {
       <header className="border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
-            <img src={tenantConfig.logoPath} alt={tenantConfig.tenantName} className="h-10 w-10 rounded-lg border border-slate-200 bg-white object-contain p-1" />
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-600">{tenantConfig.tenantName}</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--spa-muted)]">{tenantConfig.tenantName}</p>
               <p className="text-lg font-semibold text-slate-900">{tenantConfig.productName}</p>
             </div>
           </div>
           <div className="hidden items-center gap-3 sm:flex">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-gradient-to-br from-cyan-100 via-blue-100 to-purple-100 text-slate-800">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--spa-border)] bg-gradient-to-br from-[color:var(--spa-wash)] via-[color:var(--spa-accent-2)] to-[color:var(--spa-surface)] text-slate-800">
               DC
             </div>
           </div>
@@ -127,7 +126,7 @@ export default function App() {
         <div className="border-t border-slate-200 bg-slate-50/60">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
             <div className="flex items-center gap-2 text-sm text-slate-500">
-              <span className="h-2 w-2 rounded-full bg-cyan-500" />
+              <span className="h-2 w-2 rounded-full bg-[color:var(--spa-accent)]" />
               {company}
             </div>
             <div className="hidden h-4 w-px bg-slate-200 sm:block" />
@@ -138,11 +137,11 @@ export default function App() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
                     activeTab === tab.key
-                      ? "bg-[var(--brand-accent-strong)] text-slate-900 shadow-sm"
-                      : "bg-white text-slate-600 border border-transparent hover:border-slate-200 hover:bg-[var(--brand-accent)] hover:text-slate-900"
+                      ? "bg-slate-600 text-white shadow-sm"
+                      : "bg-white text-slate-600 border border-transparent hover:border-[color:var(--spa-border)] hover:bg-[color:var(--spa-wash)] hover:text-slate-900"
                   }`}
                 >
-                  <span className={`h-2 w-2 rounded-full ${activeTab === tab.key ? "bg-white" : "bg-slate-300"}`} />
+                  <span className={`h-2 w-2 rounded-full ${activeTab === tab.key ? "bg-white" : "bg-[color:var(--spa-accent-2)]"}`} />
                   {tab.label}
                 </button>
               ))}

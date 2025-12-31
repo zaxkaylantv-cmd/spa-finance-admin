@@ -99,10 +99,10 @@ export default function CashflowTab({ invoices }: Props) {
   return (
     <div className="space-y-8">
       <div>
-        <p className="text-sm uppercase tracking-[0.16em] text-cyan-600">Cashflow</p>
+        <p className="text-sm uppercase tracking-[0.16em] text-[color:var(--spa-muted)]">Cash Flow</p>
         <h1 className="text-3xl font-bold text-slate-900">Cashflow</h1>
         <p className="text-slate-500">
-          Spot cash spikes before they hit your bank.
+          Stay ahead of busy weeks and larger payments.
           {weekList.length > 0 && (
             <span className="ml-1 text-slate-600">
               (
@@ -122,7 +122,7 @@ export default function CashflowTab({ invoices }: Props) {
           kicker="live"
         />
         <MetricCard
-          title="Highest weekly outgoing"
+          title="Busiest payment week"
           amount={currency.format(highestWeek)}
           hint="Based on due weeks"
           gradientIndex={1}
@@ -138,8 +138,8 @@ export default function CashflowTab({ invoices }: Props) {
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-lg font-semibold text-slate-900">Cashflow timeline</p>
-            <p className="text-sm text-slate-500">Week-by-week view so you can smooth payments and avoid surprises.</p>
+            <p className="text-lg font-semibold text-slate-900">Payment timeline</p>
+            <p className="text-sm text-slate-500">A week-by-week view to help you plan supplier payments with confidence.</p>
           </div>
         </div>
         <div className="mt-4 flex flex-col gap-4">
@@ -148,11 +148,8 @@ export default function CashflowTab({ invoices }: Props) {
               const height = Math.max(40, (point.amount / maxOutgoing) * 160);
               return (
                 <div key={point.label} className="flex-1">
-                  <div className="flex h-44 items-end justify-center rounded-xl border border-cyan-100 bg-gradient-to-t from-white via-cyan-50 to-purple-50">
-                    <div
-                      className="w-10 rounded-lg bg-gradient-to-t from-cyan-500 via-sky-500 to-fuchsia-500 shadow-[0_12px_30px_rgba(14,165,233,0.35)]"
-                      style={{ height }}
-                    />
+                  <div className="flex h-44 items-end justify-center rounded-xl border border-slate-200 bg-white">
+                    <div className="w-10 rounded-lg bg-emerald-300" style={{ height }} />
                   </div>
                   <p className="pt-2 text-center text-xs font-semibold text-slate-500">{point.label}</p>
                 </div>
@@ -198,7 +195,7 @@ export default function CashflowTab({ invoices }: Props) {
                       className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-100 via-blue-100 to-purple-100 text-slate-700">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--spa-wash)] text-slate-700">
                           <BarChart3 className="h-4 w-4" />
                         </div>
                         <div>
@@ -230,7 +227,7 @@ export default function CashflowTab({ invoices }: Props) {
               <div className="flex justify-center">
                 <button
                   type="button"
-                  className="mt-2 text-sm font-medium text-sky-600 hover:underline"
+                  className="mt-2 text-sm font-medium text-slate-700 hover:underline"
                   onClick={() => setShowAllWeeks((prev) => !prev)}
                 >
                   {showAllWeeks ? "Show fewer weeks" : "Show all weeks"}
@@ -240,7 +237,7 @@ export default function CashflowTab({ invoices }: Props) {
           </div>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 via-blue-50 to-purple-50 p-4 shadow-[0_18px_28px_rgba(0,184,255,0.12)]">
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start gap-2 text-sm text-slate-800">
             <AlertCircle className="mt-0.5 h-4 w-4 text-rose-500" />
             <p>

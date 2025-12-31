@@ -3,7 +3,7 @@ import { Mail, UploadCloud, FileText } from "lucide-react";
 import type { Invoice, InvoiceSource, InvoiceStatus } from "../data/mockInvoices";
 import type { DateRangeFilter } from "../utils/dateRangeFilter";
 import { isInvoiceInDateRange, formatRangeLabel } from "../utils/dateRangeFilter";
-import { getApiBase, tryFetchApi } from "../utils/api";
+import { apiUrl, getApiBase, tryFetchApi } from "../utils/api";
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const formatInvoiceDate = (value: string | null | undefined) => {
@@ -17,18 +17,18 @@ const getIssueDate = (invoice: Invoice): string | undefined => invoice.issue_dat
 const getDueDate = (invoice: Invoice): string | undefined => invoice.due_date ?? invoice.dueDate;
 
 const statusStyles: Record<InvoiceStatus, string> = {
-  Overdue: "bg-rose-50 text-rose-700 border-rose-100",
-  "Due soon": "bg-amber-50 text-amber-700 border-amber-100",
-  Upcoming: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  Overdue: "bg-rose-50 text-rose-700 border-rose-200",
+  "Due soon": "bg-amber-50 text-amber-700 border-amber-200",
+  Upcoming: "bg-[color:var(--spa-wash)] text-slate-800 border-[color:var(--spa-border)]",
   Paid: "bg-slate-100 text-slate-700 border-slate-200",
   Archived: "bg-slate-100 text-slate-500 border-slate-200",
-  "Needs info": "bg-orange-50 text-orange-700 border-orange-100",
-  Captured: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  "Needs info": "bg-amber-50 text-amber-700 border-amber-200",
+  Captured: "bg-[color:var(--spa-accent-2)] text-slate-800 border-[color:var(--spa-border)]",
 };
 
 const sourceStyles: Record<InvoiceSource, string> = {
-  Upload: "bg-cyan-50 text-cyan-700 border-cyan-100",
-  Email: "bg-indigo-50 text-indigo-700 border-indigo-100",
+  Upload: "bg-[color:var(--spa-wash)] text-slate-800 border-[color:var(--spa-border)]",
+  Email: "bg-[color:var(--spa-wash)] text-slate-700 border-[color:var(--spa-border)]",
 };
 
 const DOCUMENTS_RANGE_KEY = "cashflow_documents_date_range";
@@ -67,6 +67,22 @@ const computeInvoiceStatus = (invoice: Invoice, today: Date = new Date()): Invoi
   return "Upcoming";
 };
 
+const getOriginalFileRef = (invoice: Invoice | null | undefined): string | null => {
+  if (!invoice) return null;
+  return (
+    ((invoice as any).file_ref as string | undefined) ||
+    ((invoice as any).fileRef as string | undefined) ||
+    ((invoice as any).original_file_ref as string | undefined) ||
+    null
+  );
+};
+
+type AiStatus = {
+  configured: boolean;
+  requiresKey: boolean;
+  authorised: boolean;
+};
+
 type Props = {
   invoices: Invoice[];
   onMarkPaid: (id: string) => void;
@@ -94,6 +110,17 @@ export default function DocumentsTab({
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [fileRecords, setFileRecords] = useState<any[]>([]);
+  const [fileMessage, setFileMessage] = useState<string | null>(null);
+  const [fileStatus, setFileStatus] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [aiActions, setAiActions] = useState<any | null>(null);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [autoApprovalStatus, setAutoApprovalStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [emailDraftStatus, setEmailDraftStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
+  const [inboxStatus, setInboxStatus] = useState<string | null>(null);
   const [editValues, setEditValues] = useState({
     supplier: "",
     invoiceNumber: "",
@@ -152,6 +179,7 @@ export default function DocumentsTab({
     () => invoices.find((doc) => doc.id === selectedDocId) ?? null,
     [invoices, selectedDocId],
   );
+  const originalFileRef = useMemo(() => getOriginalFileRef(selectedDoc), [selectedDoc]);
 
   useEffect(() => {
     if (selectedDoc) {
@@ -166,8 +194,62 @@ export default function DocumentsTab({
       });
       setIsEditing(false);
       setSaveError(null);
+      setFileMessage(null);
+      setAiActions(null);
+      setAiMessage(null);
+      const loadFiles = async () => {
+        try {
+          const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}/files`, {
+            headers: {
+              ...(appKey ? { "X-APP-KEY": appKey } : {}),
+            },
+          });
+          const data = (await res.json()) as { files?: any[] };
+          const rows = Array.isArray(data.files) ? data.files : [];
+          const merged = rows.length ? rows : originalFileRef ? [{ id: null, file_ref: originalFileRef }] : [];
+          setFileRecords(merged);
+          if (!merged.length) {
+            setFileMessage("No file attached");
+          } else if (!rows.length && originalFileRef) {
+            setFileMessage("Original file reference available.");
+          }
+          setFileStatus(merged.length ? "File: attached" : "File: not attached");
+        } catch (err) {
+          console.error("Failed to load files", err);
+          const fallback = originalFileRef ? [{ id: null, file_ref: originalFileRef }] : [];
+          setFileRecords(fallback);
+          setFileMessage(originalFileRef ? "Original file reference available." : "Unable to fetch file details.");
+          setFileStatus(fallback.length ? "File: attached" : "File: not attached");
+        }
+      };
+      void loadFiles();
     }
-  }, [selectedDoc]);
+  }, [selectedDoc, originalFileRef, appKey]);
+
+  useEffect(() => {
+    const loadAiStatus = async () => {
+      try {
+        const res = await fetch(apiUrl("/api/ai/status"), {
+          headers: {
+            ...(appKey ? { "X-APP-KEY": appKey } : {}),
+          },
+        });
+        if (!res.ok) {
+          throw new Error(`AI status fetch failed with ${res.status}`);
+        }
+        const data = (await res.json()) as { ai_configured?: boolean; requires_key?: boolean; authorised?: boolean };
+        setAiStatus({
+          configured: Boolean(data.ai_configured),
+          requiresKey: data.requires_key !== false,
+          authorised: data.authorised !== false,
+        });
+      } catch (err) {
+        console.error("Failed to load AI status", err);
+        setAiStatus(null);
+      }
+    };
+    void loadAiStatus();
+  }, [appKey]);
 
   const supplierHistory = useMemo(() => {
     if (!selectedDoc) return [];
@@ -229,10 +311,129 @@ export default function DocumentsTab({
     };
   }, [supplierHistory]);
 
+  const aiReady = useMemo(() => {
+    if (!aiStatus) return true;
+    if (!aiStatus.configured) return false;
+    if (aiStatus.requiresKey && !aiStatus.authorised) return false;
+    return true;
+  }, [aiStatus]);
+
+  const aiUnavailableReason = useMemo(() => {
+    if (!aiStatus) return null;
+    if (!aiStatus.configured) return "AI not configured (OpenAI key missing).";
+    if (aiStatus.requiresKey && !aiStatus.authorised) {
+      return "Add your app key in Settings to use AI actions.";
+    }
+    return null;
+  }, [aiStatus]);
+
+  const hasOriginalFile = useMemo(
+    () => fileRecords.length > 0 || Boolean(originalFileRef),
+    [fileRecords.length, originalFileRef],
+  );
+  const primaryFileId = fileRecords[0]?.id ?? null;
+  const primaryFileRef = fileRecords[0]?.file_ref ?? originalFileRef ?? null;
+
   const apiBase = getApiBase();
 
-  const toggleEmailStatus = () => {
-    setEmailConnected((prev) => !prev);
+  const formatAmountSafe = (value: any) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "—";
+    return currency.format(num);
+  };
+
+  const handleDownloadFile = async (fileId?: number | null, fileRef?: string | null) => {
+    const ref = fileRef || null;
+    if (!fileId && !ref) {
+      setFileMessage("No file attached");
+      return;
+    }
+    try {
+      if (ref && ref.startsWith("http")) {
+        window.open(ref, "_blank");
+        return;
+      }
+      if (ref && ref.startsWith("gdrive:")) {
+        setFileMessage("Google Drive files coming soon.");
+        return;
+      }
+      const targetPath = fileId
+        ? `/api/files/${fileId}/download`
+        : ref
+          ? `/api/files/download-by-ref?ref=${encodeURIComponent(ref)}`
+          : null;
+      if (!targetPath) {
+        setFileMessage("No file attached");
+        return;
+      }
+      const res = await fetch(apiUrl(targetPath), {
+        headers: {
+          ...(appKey ? { "X-APP-KEY": appKey } : {}),
+        },
+      });
+      if (res.status === 401) {
+        setFileMessage("App key required to open files. Add it in Settings.");
+        return;
+      }
+      if (res.status === 501) {
+        setFileMessage("Google Drive files coming soon.");
+        return;
+      }
+      if (!res.ok) {
+        setFileMessage("Unable to download file.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (err) {
+      console.error("File download failed", err);
+      setFileMessage("Unable to download file.");
+    }
+  };
+
+  const fetchAiActions = async () => {
+    if (!selectedDoc) return null;
+    if (!aiReady) {
+      setAiMessage(aiUnavailableReason || "AI actions need configuration.");
+      return null;
+    }
+    setAiLoading(true);
+    setAiMessage(null);
+    try {
+      const res = await fetch(apiUrl(`/api/ai/invoices/${selectedDoc.id}/actions`), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(appKey ? { "X-APP-KEY": appKey } : {}),
+        },
+      });
+      if (res.status === 501) {
+        setAiMessage("AI not configured (OPENAI_API_KEY missing).");
+        return null;
+      }
+      if (!res.ok) {
+        setAiMessage("AI suggestion unavailable right now.");
+        return null;
+      }
+      const data = (await res.json()) as { actions?: any };
+      setAiActions(data.actions || null);
+      return data.actions || null;
+    } catch (err) {
+      console.error("AI actions fetch failed", err);
+      setAiMessage("AI suggestion unavailable right now.");
+      return null;
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const ensureAiReady = () => {
+    if (!aiReady) {
+      setAiMessage(aiUnavailableReason || "AI actions need configuration.");
+      return false;
+    }
+    return true;
   };
 
   const handleFileSelect = () => {
@@ -464,19 +665,19 @@ export default function DocumentsTab({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
-                onClick={toggleEmailStatus}
+                onClick={() => {
+                  setEmailConnected((prev) => {
+                    const next = !prev;
+                    setInboxStatus(next ? "Inbox connected" : "Inbox disconnected");
+                    return next;
+                  });
+                }}
                 type="button"
               >
-                Reconnect inbox
-              </button>
-              <button
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
-                onClick={() => setEmailConnected((prev) => !prev)}
-                type="button"
-              >
-                Disconnect inbox
+                {emailConnected ? "Disconnect inbox" : "Reconnect inbox"}
               </button>
             </div>
+            {inboxStatus && <p className="text-xs text-slate-600">{inboxStatus}</p>}
 
             <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
               <div className="flex items-center gap-2 text-sm">
@@ -868,24 +1069,65 @@ export default function DocumentsTab({
                         </p>
                       ) : (
                         <p className="mt-1 text-emerald-900">
-                          As Kalyan AI sees more invoices from {selectedDoc.supplier}, it can learn a safe auto-approval
+                          As The Spa by Kaajal processes more invoices from {selectedDoc.supplier}, it can learn a safe auto-approval
                           limit for you.
                         </p>
                       )}
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-emerald-700"
-                          onClick={() =>
-                            console.log(
-                              "TODO: create auto-approval rule for",
-                              selectedDoc.supplier,
-                              shouldSuggestAutoApprove && autoApproveThreshold
-                                ? autoApproveThreshold
-                                : selectedDoc.amount,
-                            )
-                          }
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60"
+                          disabled={autoApprovalStatus === "loading" || aiLoading}
+                          onClick={async () => {
+                            setAutoApprovalStatus("loading");
+                            setAiMessage(null);
+                            if (!ensureAiReady()) {
+                              setAutoApprovalStatus("error");
+                              return;
+                            }
+                            const actions = aiActions || (await fetchAiActions());
+                            if (!actions) {
+                              setAutoApprovalStatus("error");
+                              return;
+                            }
+                            if (!actions.autoApproval || !selectedDoc.supplier) {
+                              setAiMessage("No auto-approval suggestion available yet.");
+                              setAutoApprovalStatus("error");
+                              return;
+                            }
+                            const limit = Number(actions.autoApproval.suggestedMonthlyLimit);
+                            if (!Number.isFinite(limit) || limit <= 0) {
+                              setAiMessage("Suggested limit not available.");
+                              setAutoApprovalStatus("error");
+                              return;
+                            }
+                            try {
+                              const res = await fetch(apiUrl("/api/auto-approval-rules"), {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  ...(appKey ? { "X-APP-KEY": appKey } : {}),
+                                },
+                                body: JSON.stringify({ supplier: selectedDoc.supplier, monthly_limit: limit }),
+                              });
+                              if (!res.ok) {
+                                setAiMessage(
+                                  res.status === 401
+                                    ? "App key required to create auto-approval rule."
+                                    : "Could not save auto-approval rule.",
+                                );
+                                setAutoApprovalStatus("error");
+                                return;
+                              }
+                              setAiMessage("Auto-approval rule created.");
+                              setAutoApprovalStatus("success");
+                            } catch (err) {
+                              console.error("Auto-approval save failed", err);
+                              setAiMessage("Could not save auto-approval rule.");
+                              setAutoApprovalStatus("error");
+                            }
+                          }}
                         >
-                          Create auto-approval rule
+                          {autoApprovalStatus === "loading" ? "Creating…" : "Create auto-approval rule"}
                         </button>
                         <button
                           className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
@@ -893,6 +1135,15 @@ export default function DocumentsTab({
                         >
                           Dismiss
                         </button>
+                        {autoApprovalStatus !== "idle" && (
+                          <p className="text-xs text-slate-700">
+                            {autoApprovalStatus === "loading"
+                              ? "Creating auto-approval rule…"
+                              : autoApprovalStatus === "success"
+                                ? "Auto-approval rule created."
+                                : aiMessage || "Could not create auto-approval rule."}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -916,30 +1167,104 @@ export default function DocumentsTab({
                       </>
                     )}
                     <button
-                      className="mt-2 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-cyan-700"
-                      onClick={() =>
-                        alert(
-                          `AI would draft an email to ${selectedDoc.supplier} using your recent spend and this invoice.`,
-                        )
-                      }
+                      className="mt-2 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-cyan-700 disabled:opacity-60"
+                      disabled={emailDraftStatus === "loading" || aiLoading}
+                      onClick={async () => {
+                        setAiMessage(null);
+                        setEmailDraftStatus("loading");
+                        setEmailDraft(null);
+                        if (!ensureAiReady()) {
+                          setEmailDraftStatus("error");
+                          return;
+                        }
+                        const actions = aiActions || (await fetchAiActions());
+                        if (!actions) {
+                          setEmailDraftStatus("error");
+                          return;
+                        }
+                        const supplier = selectedDoc.supplier || "your supplier";
+                        const amount = formatAmountSafe(selectedDoc.amount);
+                        const due = formatInvoiceDate(getDueDate(selectedDoc));
+                        const invoiceNumber = selectedDoc.invoiceNumber || (selectedDoc as any).invoice_number || "the invoice";
+                        const subject =
+                          actions?.supplierEmail?.subject ||
+                          `Invoice follow-up regarding ${invoiceNumber} — ${supplier}`;
+                        const body =
+                          actions?.supplierEmail?.body ||
+                          [
+                            `Hello ${supplier},`,
+                            "",
+                            `I hope you are well. We are reviewing invoice ${invoiceNumber} dated ${formatInvoiceDate(getIssueDate(selectedDoc))} for ${amount} (due ${due || "soon"}).`,
+                            "Please confirm the payment details and let us know if any adjustments are required to the amount, due date, or remittance instructions.",
+                            "",
+                            "Thank you for your help.",
+                            "The Spa by Kaajal finance team",
+                          ].join("\n");
+                        setEmailDraft({ subject, body });
+                        setEmailDraftStatus("success");
+                      }}
                     >
-                      Draft email to supplier
+                      {emailDraftStatus === "loading" ? "Creating…" : "Create email draft"}
                     </button>
+                    {emailDraftStatus === "error" && (
+                      <p className="mt-1 text-xs text-rose-600">Unable to generate email draft right now.</p>
+                    )}
+                    {emailDraft && (
+                      <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-slate-900">Email draft</p>
+                          <button
+                            className="rounded border border-slate-200 bg-cyan-50 px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-white"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(`Subject: ${emailDraft.subject}\n\n${emailDraft.body}`);
+                                setEmailDraftStatus("success");
+                                setAiMessage("Email draft copied to clipboard.");
+                              } catch (err) {
+                                console.error("Clipboard copy failed", err);
+                                setEmailDraftStatus("error");
+                                setAiMessage("Unable to copy draft to clipboard.");
+                              }
+                            }}
+                          >
+                            Copy draft
+                          </button>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase text-slate-500">Subject</p>
+                          <p className="font-semibold text-slate-900">{emailDraft.subject}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase text-slate-500">Body</p>
+                          <pre className="whitespace-pre-wrap text-slate-800">{emailDraft.body}</pre>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
+                {aiMessage && <p className="mt-2 text-xs text-slate-700">{aiMessage}</p>}
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Original document</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {fileStatus ?? (hasOriginalFile ? "File: attached" : "File: not attached")}
+                </p>
                 <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
                   <div className="flex items-center gap-2 text-sm text-slate-700">
                     <FileText className="h-4 w-4 text-cyan-600" />
                     <span>View or download original file</span>
                   </div>
-                  <button className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 hover:bg-cyan-50">
-                    Open
+                  <button
+                    className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 hover:bg-cyan-50 disabled:opacity-60"
+                    disabled={!hasOriginalFile}
+                    onClick={() => handleDownloadFile(primaryFileId, primaryFileRef)}
+                    title={!hasOriginalFile ? "No file attached" : undefined}
+                  >
+                    {hasOriginalFile ? "Open" : "No file attached"}
                   </button>
                 </div>
+                {fileMessage && <p className="mt-2 text-sm text-slate-600">{fileMessage}</p>}
               </div>
 
               <div className="flex flex-wrap gap-2">

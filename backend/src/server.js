@@ -1,4 +1,5 @@
-require("dotenv").config({ override: true });
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env"), override: true });
+console.log(`AI key present: ${Boolean(process.env.OPENAI_API_KEY)} (len=${(process.env.OPENAI_API_KEY || "").length})`);
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -20,12 +21,18 @@ const {
   insertFile,
   getFilesForOwner,
   findFileById,
+  findFileByRef,
+  findInvoiceById,
+  getRecentInvoicesBySupplier,
+  insertAutoApprovalRule,
+  getAutoApprovalRules,
 } = require("./db");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
 const { extractReceiptFromImage } = require("./ai/receiptExtractor");
 const { buildLocalFileRef } = require("./storage/localStorage");
+const { generateInvoiceActions } = require("./ai/actions");
 const OpenAI = require("openai");
 const { createReadStream } = require("fs");
 
@@ -64,6 +71,43 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+const streamFileRecord = (record, res) => {
+  const ref = record.file_ref || "";
+  if (ref.startsWith("gdrive:")) {
+    return res.status(501).json({ error: "Google Drive storage not yet configured" });
+  }
+
+  if (!ref.startsWith("local:uploads/")) {
+    return res.status(400).json({ error: "Unsupported file reference" });
+  }
+
+  const filename = ref.replace("local:uploads/", "");
+  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+    return res.status(400).json({ error: "Invalid file reference" });
+  }
+
+  const absolutePath = path.join(uploadDir, filename);
+  try {
+    const stream = createReadStream(absolutePath);
+    const mime = record.mime_type || "application/octet-stream";
+    const downloadName = record.original_filename || filename;
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+    stream.on("error", (err) => {
+      console.error("File stream error", err);
+      if (!res.headersSent) {
+        res.status(404).json({ error: "File not found" });
+      } else {
+        res.destroy();
+      }
+    });
+    stream.pipe(res);
+  } catch (err) {
+    console.error("File read error", err);
+    return res.status(404).json({ error: "File not found" });
+  }
+};
+
 const aiClient = (() => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -75,6 +119,20 @@ const aiClient = (() => {
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/api/ai/status", (req, res) => {
+  const requireKey = (process.env.APP_REQUIRE_KEY || "1").toLowerCase();
+  const keyRequired = !(requireKey === "0" || requireKey === "false");
+  const provided = req.get("x-app-key");
+  const headerPresent = typeof provided === "string" && provided.length > 0;
+  const authorised = keyRequired ? headerPresent && provided === process.env.APP_SHARED_SECRET : true;
+
+  res.json({
+    ai_configured: Boolean(process.env.OPENAI_API_KEY),
+    requires_key: keyRequired,
+    authorised,
+  });
 });
 
 app.get("/api/auth-status", (req, res) => {
@@ -237,6 +295,62 @@ app.get("/api/tips", async (_req, res) => {
   }
 });
 
+app.post("/api/ai/invoices/:id/actions", requireAppKey, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid invoice id" });
+    const invoice = await findInvoiceById(id);
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    let history = [];
+    if (invoice.supplier) {
+      history = await getRecentInvoicesBySupplier(invoice.supplier, 10);
+      history = history.filter((h) => h.id !== id);
+    }
+    try {
+      const actions = await generateInvoiceActions(invoice, history);
+      return res.json({ actions });
+    } catch (err) {
+      if (err.code === "NO_API_KEY") {
+        return res.status(501).json({ error: "AI not configured (missing OPENAI_API_KEY)" });
+      }
+      console.error("AI actions failed", err);
+      return res.status(500).json({ error: "AI request failed" });
+    }
+  } catch (err) {
+    console.error("Failed to fetch AI actions", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/auto-approval-rules", async (req, res) => {
+  try {
+    const supplier = typeof req.query.supplier === "string" ? req.query.supplier : undefined;
+    const rules = await getAutoApprovalRules({ supplier });
+    res.json({ rules });
+  } catch (err) {
+    console.error("Failed to fetch auto-approval rules", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/auto-approval-rules", requireAppKey, async (req, res) => {
+  try {
+    const { supplier, monthly_limit } = req.body || {};
+    if (!supplier || typeof supplier !== "string") {
+      return res.status(400).json({ error: "supplier is required" });
+    }
+    const limit = Number(monthly_limit);
+    if (!Number.isFinite(limit) || limit <= 0) {
+      return res.status(400).json({ error: "monthly_limit must be greater than zero" });
+    }
+    const inserted = await insertAutoApprovalRule({ supplier, monthly_limit: limit });
+    res.json(inserted);
+  } catch (err) {
+    console.error("Failed to insert auto-approval rule", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.get("/api/invoices/:id/files", async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -280,40 +394,25 @@ app.get("/api/files/:id/download", requireAppKey, async (req, res) => {
       return res.status(404).json({ error: "File not found" });
     }
 
-    const ref = record.file_ref || "";
-    if (ref.startsWith("gdrive:")) {
-      return res.status(501).json({ error: "Google Drive storage not yet configured" });
-    }
+    return streamFileRecord(record, res);
+  } catch (err) {
+    console.error("Failed to download file", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
-    if (!ref.startsWith("local:uploads/")) {
-      return res.status(400).json({ error: "Unsupported file reference" });
+app.get("/api/files/download-by-ref", requireAppKey, async (req, res) => {
+  try {
+    const ref = typeof req.query.ref === "string" ? req.query.ref : "";
+    if (!ref) {
+      return res.status(400).json({ error: "ref query parameter is required" });
     }
-
-    const filename = ref.replace("local:uploads/", "");
-    if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
-      return res.status(400).json({ error: "Invalid file reference" });
-    }
-
-    const absolutePath = path.join(uploadDir, filename);
-    try {
-      const stream = createReadStream(absolutePath);
-      const mime = record.mime_type || "application/octet-stream";
-      const downloadName = record.original_filename || filename;
-      res.setHeader("Content-Type", mime);
-      res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
-      stream.on("error", (err) => {
-        console.error("File stream error", err);
-        if (!res.headersSent) {
-          res.status(404).json({ error: "File not found" });
-        } else {
-          res.destroy();
-        }
-      });
-      stream.pipe(res);
-    } catch (err) {
-      console.error("File read error", err);
+    const record = await findFileByRef(ref);
+    if (!record) {
       return res.status(404).json({ error: "File not found" });
     }
+
+    return streamFileRecord(record, res);
   } catch (err) {
     console.error("Failed to download file", err);
     res.status(500).json({ error: "Internal server error" });

@@ -121,9 +121,9 @@ export default function TipsTab({ appKey }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm uppercase tracking-[0.16em] text-cyan-600">Tips</p>
-        <h1 className="text-3xl font-bold text-slate-900">Tips</h1>
-        <p className="text-slate-500">Record cash and card tips and keep a simple audit trail.</p>
+        <p className="text-sm uppercase tracking-[0.16em] text-[color:var(--spa-muted)]">Tips &amp; Gratuities</p>
+        <h1 className="text-3xl font-bold text-slate-900">Tips &amp; Gratuities</h1>
+        <p className="text-slate-500">Record tips and gratuities with a simple audit trail.</p>
       </div>
 
       <Totals tips={tips} />
@@ -162,7 +162,7 @@ export default function TipsTab({ appKey }: Props) {
             />
           </label>
           <label className="space-y-1 text-sm md:col-span-1">
-            <span className="text-slate-700">Customer</span>
+            <span className="text-slate-700">Client</span>
             <input
               className="w-full rounded-lg border border-slate-200 px-3 py-2"
               value={customerName}
@@ -173,7 +173,7 @@ export default function TipsTab({ appKey }: Props) {
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           <label className="space-y-1 text-sm">
-            <span className="text-slate-700">Received by</span>
+            <span className="text-slate-700">Team member</span>
             <select
               className="w-full rounded-lg border border-slate-200 px-3 py-2"
               value={staffName}
@@ -259,8 +259,7 @@ export default function TipsTab({ appKey }: Props) {
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <button
           type="submit"
-          className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-900 shadow disabled:opacity-60"
-          style={{ backgroundColor: "var(--brand-accent-strong)" }}
+          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow disabled:opacity-60 hover:opacity-90"
           disabled={loading}
         >
           {loading ? "Adding…" : "Add tip"}
@@ -269,7 +268,7 @@ export default function TipsTab({ appKey }: Props) {
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="p-4">
-          <p className="text-lg font-semibold text-slate-900">Recent tips</p>
+          <p className="text-lg font-semibold text-slate-900">Latest tips</p>
           <p className="text-sm text-slate-500">Latest first</p>
         </div>
         <div className="overflow-x-auto">
@@ -295,7 +294,7 @@ export default function TipsTab({ appKey }: Props) {
                 <td className="px-3 py-3 text-slate-700">
                   <button
                     type="button"
-                    className="text-cyan-700 hover:text-cyan-900"
+                    className="text-[color:var(--spa-accent)] hover:text-slate-900"
                     onClick={async () => {
                       if (!window.confirm("Archive this tip?")) return;
                       try {
