@@ -30,6 +30,9 @@ Production Direction — Data Ownership (Google Drive, minimal sensitive data)
 F) Storage Strategy — Design Now, Implement Incrementally
 - File_ref persisted on uploads (local:uploads/<filename>); storage boundary helper in place. Drive migration remains future work.
 
+G) Files API
+- files table added with owner_type/owner_id + metadata; GET /api/invoices/:id/files and /api/receipts/:id/files list rows; GET /api/files/:id/download streams local files (key-gated) and returns 501 for gdrive refs.
+
 Production Direction — Data Ownership (Google Drive, minimal sensitive data)
 F) Storage Strategy — Design Now, Implement Incrementally
 

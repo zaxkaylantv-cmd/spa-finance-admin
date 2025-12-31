@@ -224,7 +224,9 @@ export default function DashboardTab({ invoices }: Props) {
                 {attentionInvoices.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/70">
                     <td className="px-3 py-2 font-semibold text-slate-900">{item.supplier}</td>
-                    <td className="px-3 py-2 text-slate-600">{item.invoiceNumber}</td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {(item as any).invoiceNumber || (item as any).invoice_number || "—"}
+                    </td>
                     <td className="px-3 py-2 font-semibold text-slate-900">{currency.format(item.amount)}</td>
                     <td className="px-3 py-2 text-slate-600">{formatDisplayDate(getInvoiceDueDate(item))}</td>
                     <td className="px-3 py-2">

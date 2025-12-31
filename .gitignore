@@ -1,0 +1,7 @@
+
+# Local runtime data (never commit)
+backend/data/
+
+# Local WIP / recovery artefacts (never commit)
+README.codex-overwrite-*.md
+_wip-before-readme-restore-*.patch

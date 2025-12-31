@@ -259,7 +259,8 @@ export default function TipsTab({ appKey }: Props) {
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <button
           type="submit"
-          className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-cyan-700 disabled:opacity-60"
+          className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-900 shadow disabled:opacity-60"
+          style={{ backgroundColor: "var(--brand-accent-strong)" }}
           disabled={loading}
         >
           {loading ? "Adding…" : "Add tip"}

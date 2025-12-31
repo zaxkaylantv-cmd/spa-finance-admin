@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { tenantConfig } from "../config/tenant";
 import { tryFetchApi } from "../utils/api";
 
 type Props = {
@@ -81,7 +82,8 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-cyan-700"
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-900 shadow hover:opacity-90"
+              style={{ backgroundColor: "var(--brand-accent-strong)" }}
               onClick={() => {
                 if (typeof window !== "undefined") {
                   if (draftKey.trim()) {
@@ -168,56 +170,58 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-          <p className="text-lg font-semibold text-slate-900">AI & email digests</p>
-          <div className="grid gap-4 sm:grid-cols-2 text-sm">
-            <label className="space-y-1">
-              <span className="text-slate-600">Digest frequency</span>
-              <select
-                className="w-full rounded-lg border border-slate-200 px-3 py-2"
-                value={digestFrequency}
-                onChange={(e) => setDigestFrequency(e.target.value)}
-              >
-                <option>Off</option>
-                <option>Daily</option>
-                <option>Weekly</option>
-              </select>
-            </label>
-            <label className="space-y-1">
-              <span className="text-slate-600">Digest send time</span>
-              <input
-                type="time"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2"
-                value={digestTime}
-                onChange={(e) => setDigestTime(e.target.value)}
-              />
-            </label>
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <div>
-                <p className="font-semibold text-slate-900">Show AI risk labels on dashboard</p>
-                <p className="text-sm text-slate-500">Let AI highlight costly weeks and invoices so you act early.</p>
+        {tenantConfig.features.aiDigests && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+            <p className="text-lg font-semibold text-slate-900">AI & email digests</p>
+            <div className="grid gap-4 sm:grid-cols-2 text-sm">
+              <label className="space-y-1">
+                <span className="text-slate-600">Digest frequency</span>
+                <select
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  value={digestFrequency}
+                  onChange={(e) => setDigestFrequency(e.target.value)}
+                >
+                  <option>Off</option>
+                  <option>Daily</option>
+                  <option>Weekly</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-slate-600">Digest send time</span>
+                <input
+                  type="time"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  value={digestTime}
+                  onChange={(e) => setDigestTime(e.target.value)}
+                />
+              </label>
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div>
+                  <p className="font-semibold text-slate-900">Show AI risk labels on dashboard</p>
+                  <p className="text-sm text-slate-500">Let AI highlight costly weeks and invoices so you act early.</p>
+                </div>
+                <button
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${showRiskLabels ? "bg-cyan-500 text-white" : "bg-slate-200 text-slate-700"}`}
+                  onClick={() => setShowRiskLabels((prev) => !prev)}
+                >
+                  {showRiskLabels ? "On" : "Off"}
+                </button>
               </div>
-              <button
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${showRiskLabels ? "bg-cyan-500 text-white" : "bg-slate-200 text-slate-700"}`}
-                onClick={() => setShowRiskLabels((prev) => !prev)}
-              >
-                {showRiskLabels ? "On" : "Off"}
-              </button>
-            </div>
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <div>
-                <p className="font-semibold text-slate-900">Show AI confidence score</p>
-                <p className="text-sm text-slate-500">Display how sure AI is about extracted details.</p>
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div>
+                  <p className="font-semibold text-slate-900">Show AI confidence score</p>
+                  <p className="text-sm text-slate-500">Display how sure AI is about extracted details.</p>
+                </div>
+                <button
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${showConfidence ? "bg-cyan-500 text-white" : "bg-slate-200 text-slate-700"}`}
+                  onClick={() => setShowConfidence((prev) => !prev)}
+                >
+                  {showConfidence ? "On" : "Off"}
+                </button>
               </div>
-              <button
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${showConfidence ? "bg-cyan-500 text-white" : "bg-slate-200 text-slate-700"}`}
-                onClick={() => setShowConfidence((prev) => !prev)}
-              >
-                {showConfidence ? "On" : "Off"}
-              </button>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
           <div className="flex items-start justify-between">

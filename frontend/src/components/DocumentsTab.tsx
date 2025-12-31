@@ -90,7 +90,7 @@ export default function DocumentsTab({
 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [emailConnected, setEmailConnected] = useState(true);
-  const [emailPaused, setEmailPaused] = useState(false);
+  const [inboxEmail] = useState("invoices@thespabykaajal.com");
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -233,7 +233,6 @@ export default function DocumentsTab({
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
-    setEmailPaused(false);
   };
 
   const handleFileSelect = () => {
@@ -407,21 +406,22 @@ export default function DocumentsTab({
               </div>
               <div className="flex flex-wrap justify-center gap-3">
                 <button
-                  className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-cyan-600"
+                  className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-900 shadow"
+                  style={{ backgroundColor: "var(--brand-accent-strong)" }}
                   onClick={handleFileSelect}
                   type="button"
                 >
                   Click to upload
                 </button>
                 <button
-                  className="rounded-lg border border-cyan-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-cyan-50"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-[var(--brand-accent)]"
                   onClick={handleFileSelect}
                   type="button"
                 >
                   Browse folder
                 </button>
                 <button
-                  className="rounded-lg border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm hover:bg-emerald-50"
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
                   onClick={handleReceiptFileSelect}
                   type="button"
                 >
@@ -435,11 +435,11 @@ export default function DocumentsTab({
           </div>
         </div>
         <div>
-          <div className="h-full rounded-2xl border border-cyan-200 bg-white p-4 shadow-md space-y-4">
+          <div className="h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-md space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-lg font-semibold text-slate-900">Automatic email capture</p>
-                <p className="text-sm text-slate-500">Kalyan AI monitors your invoice inbox and files new bills without manual work.</p>
+                <p className="text-lg font-semibold text-slate-900">Invoice email inbox</p>
+                <p className="text-sm text-slate-500">Keep invoices flowing from your inbox automatically.</p>
               </div>
               <span
                 className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
@@ -450,30 +450,43 @@ export default function DocumentsTab({
                 {emailConnected ? "Connected" : "Not connected"}
               </span>
             </div>
-            <button
-              className="w-full rounded-lg border border-cyan-200 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 shadow-sm hover:bg-cyan-50"
-              onClick={toggleEmailStatus}
-            >
-              {emailConnected ? "Reconnect inbox" : "Connect email inbox"}
-            </button>
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Mail className="h-4 w-4 text-cyan-600" />
-                <span className="font-medium text-slate-800">Email capture status</span>
-              </div>
+
+            <label className="space-y-1 text-sm">
+              <span className="text-slate-700">Inbox email</span>
+              <input
+                className="w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
+                value={inboxEmail}
+                readOnly
+                placeholder="invoices@thespabykaajal.com"
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${emailPaused ? "bg-slate-200 text-slate-700" : "bg-cyan-500 text-white shadow-sm"}`}
-                onClick={() => setEmailPaused((prev) => !prev)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
+                onClick={toggleEmailStatus}
+                type="button"
               >
-                {emailPaused ? "Paused" : "Active"}
+                Reconnect inbox
+              </button>
+              <button
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
+                onClick={() => setEmailConnected((prev) => !prev)}
+                type="button"
+              >
+                Disconnect inbox
               </button>
             </div>
-            <button
-              className="w-full rounded-lg border border-rose-100 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 shadow-sm hover:bg-rose-100"
-              onClick={() => setEmailConnected((prev) => !prev)}
-            >
-              {emailConnected ? "Disconnect" : "Reconnect"} inbox
-            </button>
+
+            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Mail className="h-4 w-4 text-slate-600" />
+                <span className="font-medium text-slate-800">Email capture status</span>
+              </div>
+              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                Active
+              </span>
+            </div>
           </div>
         </div>
       </div>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles } from "lucide-react";
 import DashboardTab from "./components/DashboardTab";
 import DocumentsTab from "./components/DocumentsTab";
 import CashflowTab from "./components/CashflowTab";
@@ -8,6 +7,7 @@ import TipsTab from "./components/TipsTab";
 import type { Invoice, InvoiceStatus } from "./data/mockInvoices";
 import { mockInvoices } from "./data/mockInvoices";
 import { tryFetchApi } from "./utils/api";
+import { tenantConfig } from "./config/tenant";
 
 type TabKey = "dashboard" | "documents" | "cashflow" | "tips" | "settings";
 
@@ -18,7 +18,13 @@ export default function App() {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem("appKey") || "";
   });
-  const company = "Kalyan AI";
+  const company = tenantConfig.tenantName;
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.title = `${tenantConfig.tenantName} — ${tenantConfig.productName}`;
+    }
+  }, []);
 
   useEffect(() => {
     const loadInvoices = async () => {
@@ -106,12 +112,10 @@ export default function App() {
       <header className="border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50 text-cyan-700 shadow-sm">
-              <Sparkles className="h-5 w-5" />
-            </div>
+            <img src={tenantConfig.logoPath} alt={tenantConfig.tenantName} className="h-10 w-10 rounded-lg border border-slate-200 bg-white object-contain p-1" />
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-cyan-600">Kalyan AI</p>
-              <p className="text-lg font-semibold text-slate-900">Document & Cashflow Copilot</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-600">{tenantConfig.tenantName}</p>
+              <p className="text-lg font-semibold text-slate-900">{tenantConfig.productName}</p>
             </div>
           </div>
           <div className="hidden items-center gap-3 sm:flex">
@@ -134,8 +138,8 @@ export default function App() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
                     activeTab === tab.key
-                      ? "bg-cyan-500 text-white shadow-sm"
-                      : "bg-white text-slate-600 border border-transparent hover:border-cyan-100 hover:bg-cyan-50 hover:text-slate-800"
+                      ? "bg-[var(--brand-accent-strong)] text-slate-900 shadow-sm"
+                      : "bg-white text-slate-600 border border-transparent hover:border-slate-200 hover:bg-[var(--brand-accent)] hover:text-slate-900"
                   }`}
                 >
                   <span className={`h-2 w-2 rounded-full ${activeTab === tab.key ? "bg-white" : "bg-slate-300"}`} />
