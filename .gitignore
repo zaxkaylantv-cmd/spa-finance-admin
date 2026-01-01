@@ -8,3 +8,6 @@ _wip-before-readme-restore-*.patch
 
 # Secrets
 .env
+
+# Local WIP patches
+_wip-*.patch
