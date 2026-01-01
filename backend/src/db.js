@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS files (
   file_size INTEGER,
   created_at TEXT,
   updated_at TEXT,
+  file_hash TEXT,
   archived INTEGER DEFAULT 0
 )`;
 
@@ -272,6 +273,26 @@ db.serialize(() => {
     addColumnIfMissing("archived", "ALTER TABLE tips ADD COLUMN archived INTEGER DEFAULT 0");
   });
   db.run(CREATE_FILES_TABLE_SQL);
+  db.all("PRAGMA table_info(files);", (err, rows) => {
+    if (err) {
+      console.error("Failed to read table info for files", err);
+      return;
+    }
+    const existingColumns = new Set(rows.map((r) => r.name));
+    const addColumnIfMissing = (name, sql) => {
+      if (existingColumns.has(name)) return;
+      db.run(sql, (alterErr) => {
+        if (alterErr) {
+          console.error(`Failed to add column ${name}`, alterErr);
+        } else {
+          console.log(`Added column ${name}`);
+        }
+      });
+    };
+
+    addColumnIfMissing("file_hash", "ALTER TABLE files ADD COLUMN file_hash TEXT");
+    db.run("CREATE INDEX IF NOT EXISTS idx_files_owner_type_hash ON files(owner_type, file_hash)");
+  });
   db.run("CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_type, owner_id)");
   db.run(CREATE_AUTO_APPROVAL_RULES_SQL);
   db.run(CREATE_STAFF_TABLE_SQL);
@@ -372,6 +393,18 @@ const findFileByRef = (file_ref) =>
       if (err) return reject(err);
       resolve(row);
     });
+  });
+
+const findFileByHash = (owner_type, file_hash) =>
+  new Promise((resolve, reject) => {
+    db.get(
+      "SELECT * FROM files WHERE owner_type = ? AND file_hash = ? AND archived = 0 LIMIT 1",
+      [owner_type, file_hash],
+      (err, row) => {
+        if (err) return reject(err);
+        resolve(row);
+      },
+    );
   });
 
 const markInvoicePaid = async (id) => {
@@ -529,13 +562,23 @@ const insertInvoice = async (invoice) =>
     );
   });
 
-const insertFile = async ({ owner_type, owner_id, file_ref, original_filename, mime_type, file_size }) => {
+const insertFile = async ({ owner_type, owner_id, file_ref, original_filename, mime_type, file_size, file_hash }) => {
   const now = new Date().toISOString();
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO files (owner_type, owner_id, file_ref, original_filename, mime_type, file_size, created_at, updated_at, archived)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [owner_type, owner_id, file_ref, original_filename ?? null, mime_type ?? null, file_size ?? null, now, now],
+      `INSERT INTO files (owner_type, owner_id, file_ref, original_filename, mime_type, file_size, created_at, updated_at, file_hash, archived)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        owner_type,
+        owner_id,
+        file_ref,
+        original_filename ?? null,
+        mime_type ?? null,
+        file_size ?? null,
+        now,
+        now,
+        file_hash ?? null,
+      ],
       function (err) {
         if (err) return reject(err);
         const id = this.lastID;
@@ -688,6 +731,7 @@ module.exports = {
   archiveFile,
   findFileById,
   findFileByRef,
+  findFileByHash,
   findInvoiceById,
   getRecentInvoicesBySupplier,
   insertAutoApprovalRule,
