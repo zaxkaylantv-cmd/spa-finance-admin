@@ -28,7 +28,7 @@ const {
   getAutoApprovalRules,
 } = require("./db");
 const fs = require("fs");
-const pdfParse = require("pdf-parse");
+const { PDFParse } = require("pdf-parse");
 const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
 const { extractReceiptFromImage } = require("./ai/receiptExtractor");
 const { buildLocalFileRef } = require("./storage/localStorage");
@@ -668,12 +668,13 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       }
     } else if (mimetype.includes("pdf")) {
       try {
-        if (typeof pdfParse !== "function") {
-          throw new Error("pdf-parse not available as a function");
+        if (typeof PDFParse !== "function") {
+          throw new Error("pdf-parse PDFParse class not available");
         }
         const fileBuffer = await fs.promises.readFile(req.file.path);
-        const pdfData = await pdfParse(fileBuffer);
-        rawText = pdfData.text || "";
+        const parser = new PDFParse({ data: fileBuffer });
+        const textResult = await parser.getText();
+        rawText = (textResult && typeof textResult.text === "string") ? textResult.text : "";
         console.log("Raw text source: PDF via pdf-parse");
       } catch (pdfErr) {
         console.error("PDF parse failed:", pdfErr);
@@ -746,8 +747,15 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         (aiResult.invoice_number && aiResult.invoice_number.toString().trim()) || mergedInvoice.invoice_number;
       mergedInvoice.issue_date = aiResult.issue_date || mergedInvoice.issue_date;
       mergedInvoice.due_date = aiResult.due_date || mergedInvoice.due_date;
-      mergedInvoice.amount =
-        typeof aiResult.amount === "number" && !Number.isNaN(aiResult.amount) ? aiResult.amount : mergedInvoice.amount;
+      const aiAmount =
+        typeof aiResult.amount === "number" && Number.isFinite(aiResult.amount)
+          ? aiResult.amount
+          : typeof aiResult.amount === "string"
+            ? parseAmount(aiResult.amount)
+            : undefined;
+      if (typeof aiAmount === "number" && Number.isFinite(aiAmount)) {
+        mergedInvoice.amount = aiAmount;
+      }
       mergedInvoice.status =
         (typeof aiResult.status === "string" && aiResult.status.trim()) || mergedInvoice.status;
       mergedInvoice.category =

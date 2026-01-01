@@ -47,11 +47,28 @@ ${rawText || ""}`;
     });
 
     const content = response?.choices?.[0]?.message?.content || "";
+    const safeParseJson = (raw) => {
+      if (!raw) return null;
+      let cleaned = raw.trim();
+      if (cleaned.startsWith("```")) {
+        const fenceEnd = cleaned.indexOf("```", 3);
+        if (fenceEnd !== -1) {
+          cleaned = cleaned.slice(3, fenceEnd);
+        }
+      }
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+      }
+      cleaned = cleaned.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
+      return JSON.parse(cleaned);
+    };
     try {
-      const parsed = JSON.parse(content);
+      const parsed = safeParseJson(content);
       return parsed;
     } catch (err) {
-      console.error("Failed to parse AI invoice JSON", err, content);
+      console.error("Failed to parse AI invoice JSON:", err?.message, "len=", content.length);
       return null;
     }
   } catch (err) {
