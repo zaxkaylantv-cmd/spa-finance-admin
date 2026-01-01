@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
+const crypto = require("crypto");
 const {
   getInvoices,
   markInvoicePaid,
@@ -22,6 +23,7 @@ const {
   getFilesForOwner,
   findFileById,
   findFileByRef,
+  findFileByHash,
   findInvoiceById,
   getRecentInvoicesBySupplier,
   insertAutoApprovalRule,
@@ -629,6 +631,13 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       size: req.file.size,
     });
 
+    const uploadedBuffer = await fs.promises.readFile(req.file.path);
+    const fileHash = crypto.createHash("sha256").update(uploadedBuffer).digest("hex");
+    const existing = await findFileByHash("invoice", fileHash);
+    if (existing) {
+      return res.json({ duplicate: true, existingOwnerId: existing.owner_id, fileId: existing.id });
+    }
+
     const today = new Date();
     const due = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
     const toISO = (d) => d.toISOString().slice(0, 10);
@@ -660,7 +669,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
 
     if (shouldTreatAsText) {
       try {
-        rawText = await fs.promises.readFile(req.file.path, "utf8");
+        rawText = uploadedBuffer.toString("utf8");
         console.log("Raw text source: plain text or extension-based text");
       } catch (readErr) {
         console.error("Text read failed, using fallback:", readErr);
@@ -671,8 +680,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         if (typeof PDFParse !== "function") {
           throw new Error("pdf-parse PDFParse class not available");
         }
-        const fileBuffer = await fs.promises.readFile(req.file.path);
-        const parser = new PDFParse({ data: fileBuffer });
+        const parser = new PDFParse({ data: uploadedBuffer });
         const textResult = await parser.getText();
         rawText = (textResult && typeof textResult.text === "string") ? textResult.text : "";
         console.log("Raw text source: PDF via pdf-parse");
@@ -779,6 +787,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
             original_filename: req.file.originalname || null,
             mime_type: req.file.mimetype || null,
             file_size: req.file.size || null,
+            file_hash: fileHash,
           });
         } catch (fileErr) {
           console.error("Failed to insert file metadata", fileErr);
@@ -821,6 +830,13 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
       path: req.file.path,
       size: req.file.size,
     });
+
+    const uploadedBuffer = await fs.promises.readFile(req.file.path);
+    const fileHash = crypto.createHash("sha256").update(uploadedBuffer).digest("hex");
+    const existing = await findFileByHash("receipt", fileHash);
+    if (existing) {
+      return res.json({ duplicate: true, existingOwnerId: existing.owner_id, fileId: existing.id });
+    }
 
     const now = new Date().toISOString();
     const baseReceipt = {
@@ -880,6 +896,7 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
             original_filename: req.file.originalname || null,
             mime_type: req.file.mimetype || null,
             file_size: req.file.size || null,
+            file_hash: fileHash,
           });
         } catch (fileErr) {
           console.error("Failed to insert file metadata", fileErr);

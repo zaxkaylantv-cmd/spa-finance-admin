@@ -519,6 +519,11 @@ export default function DocumentsTab({
         }
 
         console.log("Upload success:", data);
+        if (data?.duplicate) {
+          setUploadStatus("success");
+          setUploadMessage("Already uploaded (duplicate) — no new record created.");
+          return;
+        }
         setUploadStatus("success");
         setUploadMessage("File uploaded successfully.");
         if (data?.invoice && onInvoiceCreatedFromUpload) {
@@ -566,6 +571,11 @@ export default function DocumentsTab({
       }
 
       console.log("Receipt upload success:", data);
+      if (data?.duplicate) {
+        setUploadStatus("success");
+        setUploadMessage("Already uploaded (duplicate) — no new record created.");
+        return;
+      }
       setUploadStatus("success");
       setUploadMessage("Receipt uploaded successfully.");
       if (data?.invoice && onInvoiceCreatedFromUpload) {
