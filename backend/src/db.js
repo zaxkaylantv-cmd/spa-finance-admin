@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   file_kind TEXT DEFAULT 'pdf',
   merchant TEXT,
   vat_amount REAL,
+  notes TEXT,
   approved_at TEXT,
   approved_by TEXT,
   created_at TEXT,
@@ -240,6 +241,7 @@ db.serialize(() => {
     addColumnIfMissing("created_at", "ALTER TABLE invoices ADD COLUMN created_at TEXT");
     addColumnIfMissing("updated_at", "ALTER TABLE invoices ADD COLUMN updated_at TEXT");
     addColumnIfMissing("file_ref", "ALTER TABLE invoices ADD COLUMN file_ref TEXT");
+    addColumnIfMissing("notes", "ALTER TABLE invoices ADD COLUMN notes TEXT");
 
     db.run("UPDATE invoices SET doc_type = 'invoice' WHERE doc_type IS NULL");
     db.run("UPDATE invoices SET file_kind = 'pdf' WHERE file_kind IS NULL");
@@ -414,8 +416,9 @@ const findFileByHash = (owner_type, file_hash) =>
 const markInvoicePaid = async (id) => {
   const existing = await findInvoiceById(id);
   if (!existing) return null;
+  const now = new Date().toISOString();
   await new Promise((resolve, reject) => {
-    db.run("UPDATE invoices SET status = 'Paid' WHERE id = ?", [id], (err) => {
+    db.run("UPDATE invoices SET status = 'Paid', updated_at = ? WHERE id = ?", [now, id], (err) => {
       if (err) return reject(err);
       resolve();
     });
@@ -539,11 +542,14 @@ const archiveTip = async (id) => {
   return findTipById(id);
 };
 
-const insertInvoice = async (invoice) =>
-  new Promise((resolve, reject) => {
+const insertInvoice = async (invoice) => {
+  const now = new Date().toISOString();
+  const createdAt = invoice.created_at || now;
+  const updatedAt = invoice.updated_at || now;
+  return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, file_ref)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, doc_type, file_kind, merchant, vat_amount, notes, approved_at, approved_by, created_at, updated_at, file_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         invoice.supplier,
         invoice.invoice_number,
@@ -555,6 +561,15 @@ const insertInvoice = async (invoice) =>
         invoice.source,
         invoice.week_label,
         invoice.archived ?? 0,
+        invoice.doc_type || "invoice",
+        invoice.file_kind || "pdf",
+        invoice.merchant ?? null,
+        invoice.vat_amount ?? null,
+        invoice.notes ?? null,
+        invoice.approved_at ?? null,
+        invoice.approved_by ?? null,
+        createdAt,
+        updatedAt,
         invoice.file_ref ?? null,
       ],
       function (err) {
@@ -566,6 +581,7 @@ const insertInvoice = async (invoice) =>
       },
     );
   });
+};
 
 const insertFile = async ({ owner_type, owner_id, file_ref, original_filename, mime_type, file_size, file_hash }) => {
   const now = new Date().toISOString();
@@ -700,15 +716,16 @@ const insertReceipt = async (data) =>
   });
 
 const updateInvoice = async (id, fields) => {
-  const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category"];
+  const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category", "notes", "vat_amount"];
   const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(fields, key));
   if (keys.length === 0) return findInvoiceById(id);
 
   const setClause = keys.map((key) => `${key} = ?`).join(", ");
   const values = keys.map((key) => fields[key]);
+  const now = new Date().toISOString();
 
   await new Promise((resolve, reject) => {
-    db.run(`UPDATE invoices SET ${setClause} WHERE id = ?`, [...values, id], (err) => {
+    db.run(`UPDATE invoices SET ${setClause}, updated_at = ? WHERE id = ?`, [...values, now, id], (err) => {
       if (err) return reject(err);
       resolve();
     });

@@ -6,6 +6,11 @@ import { isInvoiceInDateRange, formatRangeLabel } from "../utils/dateRangeFilter
 import { apiUrl, getApiBase, tryFetchApi } from "../utils/api";
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
+const formatCurrency = (value: any) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return currency.format(num);
+};
 const formatInvoiceDate = (value: string | null | undefined) => {
   if (!value) return "—";
   const d = new Date(value);
@@ -123,7 +128,6 @@ export default function DocumentsTab({
   const [inboxStatus, setInboxStatus] = useState<string | null>(null);
   const [notesValue, setNotesValue] = useState("");
   const [notesSavedValue, setNotesSavedValue] = useState("");
-  const [notesStatus, setNotesStatus] = useState<"idle" | "saving" | "saved" | "local" | "error">("idle");
   const [editValues, setEditValues] = useState({
     supplier: "",
     invoiceNumber: "",
@@ -132,8 +136,10 @@ export default function DocumentsTab({
     amount: "",
     status: "",
     category: "",
+    notes: "",
   });
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState(() => {
     const fallback: DateRangeFilter = "all";
     if (typeof window === "undefined") {
@@ -186,6 +192,10 @@ export default function DocumentsTab({
 
   useEffect(() => {
     if (selectedDoc) {
+      const localNotesKey = `spa_invoice_notes_${selectedDoc.id}`;
+      const localNotes =
+        typeof window !== "undefined" ? window.localStorage.getItem(localNotesKey) || undefined : undefined;
+      const initialNotes = (selectedDoc as any).notes ?? localNotes ?? "";
       setEditValues({
         supplier: selectedDoc.supplier ?? "",
         invoiceNumber: selectedDoc.invoiceNumber ?? (selectedDoc as any).invoice_number ?? "",
@@ -194,19 +204,16 @@ export default function DocumentsTab({
         amount: selectedDoc.amount != null ? String(selectedDoc.amount) : "",
         status: selectedDoc.status ?? "",
         category: selectedDoc.category ?? "",
+        notes: (selectedDoc as any).notes ?? initialNotes ?? "",
       });
       setIsEditing(false);
       setSaveError(null);
+      setSaveMessage(null);
       setFileMessage(null);
       setAiActions(null);
       setAiMessage(null);
-      const localNotesKey = `spa_invoice_notes_${selectedDoc.id}`;
-      const localNotes =
-        typeof window !== "undefined" ? window.localStorage.getItem(localNotesKey) || undefined : undefined;
-      const initialNotes = selectedDoc.notes ?? localNotes ?? "";
       setNotesValue(initialNotes);
       setNotesSavedValue(initialNotes);
-      setNotesStatus("idle");
       const loadFiles = async () => {
         try {
           const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}/files`, {
@@ -346,42 +353,7 @@ export default function DocumentsTab({
 
   const apiBase = getApiBase();
 
-  const formatAmountSafe = (value: any) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return "—";
-    return currency.format(num);
-  };
-
-  const saveNotes = async () => {
-    if (!selectedDoc) return;
-    const localNotesKey = `spa_invoice_notes_${selectedDoc.id}`;
-    setNotesStatus("saving");
-    try {
-      const res = await fetch(apiUrl(`/api/invoices/${selectedDoc.id}`), {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(appKey ? { "X-APP-KEY": appKey } : {}),
-        },
-        body: JSON.stringify({ notes: notesValue }),
-      });
-      if (!res.ok) {
-        throw new Error(`Bad status ${res.status}`);
-      }
-      setNotesSavedValue(notesValue);
-      setNotesStatus("saved");
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(localNotesKey, notesValue);
-      }
-    } catch (err) {
-      console.error("Notes save failed, storing locally", err);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(localNotesKey, notesValue);
-      }
-      setNotesSavedValue(notesValue);
-      setNotesStatus("local");
-    }
-  };
+  const formatAmountSafe = (value: any) => formatCurrency(value);
 
   const handleDownloadFile = async (fileId?: number | null, fileRef?: string | null) => {
     const ref = fileRef || null;
@@ -486,54 +458,73 @@ export default function DocumentsTab({
 
   const handleFileUpload = async (file: File) => {
     if (!file) return;
-      setUploadStatus("uploading");
-      setUploadMessage("Uploading invoice…");
+    const mime = (file.type || "").toLowerCase();
+    const name = (file.name || "").toLowerCase();
+    const isPdf = mime === "application/pdf" || mime.includes("pdf") || name.endsWith(".pdf");
+    const isImage = mime.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic|heif)$/i.test(name);
+    if (!isPdf && !isImage) {
+      setUploadStatus("error");
+      setUploadMessage("Unsupported file type. Please upload a PDF or image invoice.");
+      return;
+    }
+
+    setUploadStatus("uploading");
+    setUploadMessage("Uploading invoice…");
+    try {
+      const url = `${apiBase}/api/upload-invoice`;
+      let data: any = null;
+
       try {
-        const url = `${apiBase}/api/upload-invoice`;
-        let data: any = null;
-
-        try {
-          const formData = new FormData();
-          formData.append("file", file);
-          const headers: Record<string, string> = {};
-          if (typeof appKey === "string") {
-            headers["X-APP-KEY"] = appKey;
-          }
-          const response = await fetch(url, {
-            method: "POST",
-            body: formData,
-            headers,
-          });
-          if (!response.ok) {
-            console.error("Upload failed", response.status, "at", url);
-            setUploadStatus("error");
-            setUploadMessage("Upload failed. Please try again.");
-            return;
-          }
-          data = await response.json();
-        } catch (err) {
-          console.error("Upload error at", url, err);
+        const formData = new FormData();
+        formData.append("file", file);
+        const headers: Record<string, string> = {};
+        if (typeof appKey === "string") {
+          headers["X-APP-KEY"] = appKey;
+        }
+        const response = await fetch(url, {
+          method: "POST",
+          body: formData,
+          headers,
+        });
+        if (!response.ok) {
+          console.error("Upload failed", response.status, "at", url);
           setUploadStatus("error");
-          setUploadMessage("Upload failed. Please try again.");
+          try {
+            const errorData = (await response.json()) as { error?: string };
+            setUploadMessage(errorData?.error || "Upload failed. Please try again.");
+          } catch {
+            setUploadMessage("Upload failed. Please try again.");
+          }
           return;
         }
-
-        console.log("Upload success:", data);
-        if (data?.duplicate) {
-          setUploadStatus("success");
-          setUploadMessage("Already uploaded (duplicate) — no new record created.");
-          return;
-        }
-        setUploadStatus("success");
-        setUploadMessage("File uploaded successfully.");
-        if (data?.invoice && onInvoiceCreatedFromUpload) {
-          onInvoiceCreatedFromUpload(data.invoice as Invoice);
-        }
-      } catch (error) {
-        console.error("Upload error", error);
+        data = await response.json();
+      } catch (err) {
+        console.error("Upload error at", url, err);
         setUploadStatus("error");
-        setUploadMessage("Upload failed. Please check your connection and try again.");
+        setUploadMessage("Upload failed. Please try again.");
+        return;
       }
+
+      console.log("Upload success:", data);
+      if (data?.duplicate) {
+        setUploadStatus("success");
+        setUploadMessage("Already uploaded (duplicate) — no new record created.");
+        return;
+      }
+      setUploadStatus("success");
+      if (data?.needs_review) {
+        setUploadMessage("Uploaded — needs review. Please open the invoice and add missing details.");
+      } else {
+        setUploadMessage("File uploaded successfully.");
+      }
+      if (data?.invoice && onInvoiceCreatedFromUpload) {
+        onInvoiceCreatedFromUpload(data.invoice as Invoice);
+      }
+    } catch (error) {
+      console.error("Upload error", error);
+      setUploadStatus("error");
+      setUploadMessage("Upload failed. Please check your connection and try again.");
+    }
   };
 
   const handleReceiptUpload = async (file: File) => {
@@ -638,7 +629,7 @@ export default function DocumentsTab({
                 type="file"
                 className="hidden"
                 onChange={handleFileChange}
-                accept=".pdf,.doc,.docx,.txt,image/*"
+                accept=".pdf,image/*"
               />
               <input
                 ref={receiptFileInputRef}
@@ -653,7 +644,7 @@ export default function DocumentsTab({
               <div className="space-y-1">
                 <p className="text-lg font-semibold text-slate-900">Drop invoices here or click to upload</p>
                 <p className="text-sm text-slate-500">
-                  PDF, JPG, PNG, DOCX supported. Every file is scanned by AI and added to your cashflow view automatically.
+                  Upload PDF invoices or images (JPG, PNG, WEBP). Images are saved for manual review; PDFs keep the current AI extraction.
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-3">
@@ -841,7 +832,7 @@ export default function DocumentsTab({
                       </td>
                       <td className="px-3 py-3 font-semibold text-slate-900">{doc.supplier}</td>
                       <td className="px-3 py-3 text-slate-600">{displayInvoiceNumber}</td>
-                      <td className="px-3 py-3 font-semibold text-slate-900">{currency.format(Number(doc.amount || 0))}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-900">{formatCurrency(doc.amount)}</td>
                       <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getDueDate(doc))}</td>
                       <td className="px-3 py-3">
                         <span
@@ -898,8 +889,13 @@ export default function DocumentsTab({
                         amount: selectedDoc.amount != null ? String(selectedDoc.amount) : "",
                         status: selectedDoc.status ?? "",
                         category: selectedDoc.category ?? "",
+                        notes: (selectedDoc as any).notes ?? notesValue ?? "",
                       });
+                      setSaveMessage(null);
+                      setSaveError(null);
                     } else {
+                      setSaveMessage(null);
+                      setSaveError(null);
                       setIsEditing(true);
                     }
                   }}
@@ -923,6 +919,20 @@ export default function DocumentsTab({
                     <p className="font-semibold text-slate-900">{selectedDoc.supplier}</p>
                   )}
                 </div>
+                <div>
+                  <p className="text-xs text-slate-500">Invoice number</p>
+                  {isEditing ? (
+                    <input
+                      className="w-full rounded-md border px-3 py-2 text-sm"
+                      value={editValues.invoiceNumber}
+                      onChange={(e) => setEditValues((v) => ({ ...v, invoiceNumber: e.target.value }))}
+                    />
+                  ) : (
+                    <p className="font-semibold text-slate-900">
+                      {selectedDoc.invoiceNumber || (selectedDoc as any).invoice_number || "—"}
+                    </p>
+                  )}
+                </div>
                 <div className="text-right">
                   <p className="text-xs text-slate-500">Status</p>
                   {(() => {
@@ -935,7 +945,7 @@ export default function DocumentsTab({
                             value={editValues.status}
                             onChange={(e) => setEditValues((v) => ({ ...v, status: e.target.value }))}
                           >
-                            {["Upcoming", "Overdue", "Paid"].map((opt) => (
+                            {["Upcoming", "Due soon", "Overdue", "Paid", "Needs info", "Captured"].map((opt) => (
                               <option key={opt} value={opt}>
                                 {opt}
                               </option>
@@ -967,7 +977,7 @@ export default function DocumentsTab({
                       onChange={(e) => setEditValues((v) => ({ ...v, amount: e.target.value }))}
                     />
                   ) : (
-                    <p className="font-semibold text-slate-900">{currency.format(selectedDoc.amount)}</p>
+                    <p className="font-semibold text-slate-900">{formatCurrency(selectedDoc.amount)}</p>
                   )}
                 </div>
               </div>
@@ -1003,11 +1013,11 @@ export default function DocumentsTab({
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">Subtotal</p>
-                    <p className="font-medium text-slate-900">{currency.format(selectedDoc.subtotal)}</p>
+                    <p className="font-medium text-slate-900">{formatCurrency((selectedDoc as any).subtotal)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">Tax</p>
-                    <p className="font-medium text-slate-900">{currency.format(selectedDoc.tax)}</p>
+                    <p className="font-medium text-slate-900">{formatCurrency((selectedDoc as any).tax)}</p>
                   </div>
                 </div>
               </div>
@@ -1035,31 +1045,19 @@ export default function DocumentsTab({
                   </label>
                   <label className="flex flex-col gap-1">
                     <span className="text-xs text-slate-500">Notes</span>
-                    <textarea
-                      className="rounded-lg border border-slate-200 px-3 py-2"
-                      rows={3}
-                      value={notesValue}
-                      onChange={(e) => setNotesValue(e.target.value)}
-                      placeholder="Add internal context or routing notes here."
-                    />
-                    <div className="flex flex-wrap items-center gap-3 pt-1">
-                      <button
-                        type="button"
-                        className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-60"
-                        disabled={notesValue === notesSavedValue}
-                        onClick={() => void saveNotes()}
-                      >
-                        Save notes
-                      </button>
-                      {notesStatus === "saving" && <span className="text-xs text-slate-600">Saving…</span>}
-                      {notesStatus === "saved" && <span className="text-xs text-emerald-700">Saved</span>}
-                      {notesStatus === "local" && (
-                        <span className="text-xs text-amber-700">Couldn&apos;t save (saved on this device)</span>
-                      )}
-                      {notesStatus === "error" && (
-                        <span className="text-xs text-rose-700">Couldn&apos;t save notes.</span>
-                      )}
-                    </div>
+                    {isEditing ? (
+                      <textarea
+                        className="rounded-lg border border-slate-200 px-3 py-2"
+                        rows={3}
+                        value={editValues.notes}
+                        onChange={(e) => setEditValues((v) => ({ ...v, notes: e.target.value }))}
+                        placeholder="Add internal context or routing notes here."
+                      />
+                    ) : (
+                      <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        {notesSavedValue || "—"}
+                      </p>
+                    )}
                   </label>
                 </div>
               </div>
@@ -1069,7 +1067,7 @@ export default function DocumentsTab({
                 <div className="mt-3 space-y-2 text-slate-700">
                   <div className="flex items-center justify-between rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
                     <span>Amount due</span>
-                    <span className="text-sm font-semibold">{currency.format(selectedDoc.amount)}</span>
+                    <span className="text-sm font-semibold">{formatCurrency(selectedDoc.amount)}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
                     <span>PO / invoice</span>
@@ -1090,29 +1088,46 @@ export default function DocumentsTab({
                     onClick={async () => {
                       try {
                         setSaveError(null);
+                        setSaveMessage(null);
+                        const parsedAmount = editValues.amount === "" ? null : Number(editValues.amount);
                         const body = {
-                          supplier: editValues.supplier || undefined,
-                          invoice_number: editValues.invoiceNumber || undefined,
-                          issue_date: editValues.issue_date || undefined,
-                          due_date: editValues.due_date || undefined,
-                          amount: editValues.amount ? parseFloat(editValues.amount) : undefined,
-                          status: editValues.status || undefined,
-                          category: editValues.category || undefined,
+                          supplier: editValues.supplier || "",
+                          invoice_number: editValues.invoiceNumber || "",
+                          issue_date: editValues.issue_date || null,
+                          due_date: editValues.due_date || null,
+                          amount: Number.isFinite(parsedAmount) ? parsedAmount : null,
+                          status: editValues.status || "",
+                          category: editValues.category || "",
+                          notes: editValues.notes ?? "",
                         };
-                        await tryFetchApi(`/api/invoices/${selectedDoc.id}`, {
+                        const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}`, {
                           method: "PATCH",
                           headers: {
                             "Content-Type": "application/json",
-                            ...(appKey ? { "X-APP-KEY": appKey } : {}),
                           },
                           body: JSON.stringify(body),
                         });
+                        const data = (await res.json()) as Invoice;
                         const updated: Invoice = {
                           ...selectedDoc,
-                          ...body,
-                          amount: body.amount ?? selectedDoc.amount,
+                          ...data,
+                          id: data?.id != null ? String((data as any).id) : selectedDoc.id,
+                          invoiceNumber:
+                            (data as any).invoiceNumber ??
+                            (data as any).invoice_number ??
+                            selectedDoc.invoiceNumber ??
+                            (selectedDoc as any).invoice_number,
                         } as Invoice;
                         onInvoiceUpdated?.(updated);
+                        setNotesValue((data as any).notes ?? "");
+                        setNotesSavedValue((data as any).notes ?? "");
+                        if (typeof window !== "undefined" && selectedDoc.id) {
+                          window.localStorage.setItem(
+                            `spa_invoice_notes_${selectedDoc.id}`,
+                            (data as any).notes ?? "",
+                          );
+                        }
+                        setSaveMessage("Saved");
                         setIsEditing(false);
                       } catch (err) {
                         console.error("Failed to save invoice", err);
@@ -1123,6 +1138,7 @@ export default function DocumentsTab({
                     Save changes
                   </button>
                   {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+                  {saveMessage && <p className="text-sm text-emerald-700">{saveMessage}</p>}
                 </div>
               )}
 
@@ -1135,8 +1151,7 @@ export default function DocumentsTab({
                       {shouldSuggestAutoApprove ? (
                         <p className="mt-1 text-emerald-900">
                           Invoices from {selectedDoc.supplier} are regular and within a typical range. Consider
-                          auto-approving {selectedDoc.category || "these invoices"} up to about{" "}
-                          {currency.format(autoApproveThreshold)}.
+                          auto-approving {selectedDoc.category || "these invoices"} up to about {formatCurrency(autoApproveThreshold)}.
                         </p>
                       ) : (
                         <p className="mt-1 text-emerald-900">

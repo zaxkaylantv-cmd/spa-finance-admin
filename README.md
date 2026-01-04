@@ -8,3 +8,9 @@ Slice 1: Invoice + receipt capture with approval workflow.
 - API list: `GET /api/invoices` returns non-archived invoices by default; use `?includeArchived=1` if you ever need archived rows.
 - Upload dedupe: uploads compute a SHA-256 hash and will not create a new file/invoice record if the same file is uploaded again (duplicate detection).
 - Auth header: when APP_REQUIRE_KEY is enabled, write the shared secret to localStorage under `appKey`; the frontend sends `x-app-key` on API calls.
+
+## Invoice uploads
+
+- Supported: PDF (`application/pdf`) and images (`image/*` such as JPG/PNG/WEBP); DOC/DOCX and other types are rejected with an error.
+- Images are stored as invoices in a "Needs info" state for manual completion (no OCR for images yet); PDFs continue to run through the existing extraction.
+- Duplicate uploads (based on file hash) are ignored and do not create a new invoice record.

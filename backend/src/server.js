@@ -514,13 +514,41 @@ app.post("/api/invoices/:id/archive", requireAppKey, async (req, res) => {
 app.patch("/api/invoices/:id", requireAppKey, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category"];
+    const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category", "notes", "vat_amount"];
     const payload = {};
     allowed.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
         payload[key] = req.body[key];
       }
     });
+
+    if ("amount" in payload) {
+      const parsed = Number(payload.amount);
+      payload.amount = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    if ("vat_amount" in payload) {
+      const parsedVat = Number(payload.vat_amount);
+      payload.vat_amount = Number.isFinite(parsedVat) ? parsedVat : null;
+    }
+
+    ["supplier", "invoice_number", "status", "category", "notes"].forEach((key) => {
+      if (key in payload && typeof payload[key] === "string") {
+        const trimmed = payload[key].trim();
+        payload[key] = trimmed.length ? trimmed : null;
+      }
+    });
+
+    ["issue_date", "due_date"].forEach((key) => {
+      if (key in payload && typeof payload[key] === "string" && payload[key].trim() === "") {
+        payload[key] = null;
+      }
+    });
+
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+
     const updated = await updateInvoice(id, payload);
     if (!updated) return res.status(404).json({ error: "Invoice not found" });
     res.json(updated);
@@ -626,6 +654,16 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       return res.status(400).json({ error: "No file uploaded" });
     }
     const fileRef = buildLocalFileRef(req.file);
+    const mimetype = (req.file.mimetype || "").toLowerCase();
+    const ext = path.extname(req.file.originalname || "").toLowerCase();
+    const imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif"];
+    const isPdf = mimetype === "application/pdf" || mimetype === "application/x-pdf" || mimetype.includes("pdf") || ext === ".pdf";
+    const isImage = mimetype.startsWith("image/") || imageExtensions.includes(ext);
+    if (!isPdf && !isImage) {
+      console.warn("Unsupported invoice upload type:", mimetype);
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: "Unsupported file type. Please upload a PDF or image invoice." });
+    }
 
     console.log("Upload received:", {
       originalname: req.file.originalname,
@@ -638,13 +676,65 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
     const fileHash = crypto.createHash("sha256").update(uploadedBuffer).digest("hex");
     const existing = await findFileByHash("invoice", fileHash);
     if (existing) {
-      return res.json({ duplicate: true, existingOwnerId: existing.owner_id, fileId: existing.id });
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.json({ success: true, duplicate: true, existingOwnerId: existing.owner_id, fileId: existing.id });
     }
 
+    const nowIso = new Date().toISOString();
     const today = new Date();
     const due = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
     const toISO = (d) => d.toISOString().slice(0, 10);
     const weekLabelFromDate = (date) => `Week of ${date}`;
+
+    if (isImage) {
+      const needsReviewInvoice = {
+        supplier: "Uploaded invoice",
+        invoice_number: `${req.file.originalname} — needs details`,
+        issue_date: null,
+        due_date: null,
+        amount: 0,
+        status: "Needs info",
+        category: null,
+        source: "Upload",
+        week_label: null,
+        archived: 0,
+        doc_type: "invoice",
+        file_kind: "image",
+        created_at: nowIso,
+        updated_at: nowIso,
+        file_ref: fileRef,
+      };
+      try {
+        const inserted = await insertInvoice(needsReviewInvoice);
+        let storedFile = null;
+        if (inserted?.id) {
+          try {
+            storedFile = await insertFile({
+              owner_type: "invoice",
+              owner_id: inserted.id,
+              file_ref: fileRef || null,
+              original_filename: req.file.originalname || null,
+              mime_type: req.file.mimetype || null,
+              file_size: req.file.size || null,
+              file_hash: fileHash,
+            });
+          } catch (fileErr) {
+            console.error("Failed to insert file metadata", fileErr);
+          }
+        }
+        return res.json({
+          success: true,
+          needs_review: true,
+          message: "Image uploaded; invoice queued for manual review.",
+          invoice: inserted,
+          file_ref: fileRef ?? null,
+          file_record: storedFile,
+        });
+      } catch (err) {
+        console.error("Image upload insert error:", err);
+        return res.status(500).json({ error: "Upload failed to save invoice" });
+      }
+    }
 
     const fallbackInvoice = {
       supplier: "Uploaded invoice",
@@ -657,12 +747,15 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       source: "Upload",
       week_label: weekLabelFromDate(toISO(due)),
       archived: 0,
+      doc_type: "invoice",
+      file_kind: "pdf",
+      created_at: nowIso,
+      updated_at: nowIso,
       file_ref: fileRef,
     };
 
     let rawText = "";
-    const mimetype = (req.file.mimetype || "").toLowerCase();
-    const ext = path.extname(req.file.originalname || "").toLowerCase();
+    let parseFailed = false;
     const shouldTreatAsText =
       mimetype.startsWith("text/") ||
       mimetype === "application/octet-stream" ||
@@ -678,7 +771,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         console.error("Text read failed, using fallback:", readErr);
         rawText = `Uploaded invoice file: ${req.file.originalname}. Extract key invoice details.`;
       }
-    } else if (mimetype.includes("pdf")) {
+    } else if (isPdf) {
       try {
         if (typeof PDFParse !== "function") {
           throw new Error("pdf-parse PDFParse class not available");
@@ -689,6 +782,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         console.log("Raw text source: PDF via pdf-parse");
       } catch (pdfErr) {
         console.error("PDF parse failed:", pdfErr);
+        parseFailed = true;
         rawText = `Uploaded invoice file: ${req.file.originalname}. Extract key invoice details.`;
         console.log("Falling back to generic prompt text for PDF.");
       }
@@ -698,6 +792,13 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
     }
 
     console.log("Raw text snippet:", rawText.slice(0, 400));
+
+    const parseAmount = (value) => {
+      if (!value) return undefined;
+      const cleaned = value.replace(/[^0-9.\-]+/g, "");
+      const num = parseFloat(cleaned);
+      return Number.isNaN(num) ? undefined : num;
+    };
 
     const simpleExtract = (text) => {
       if (!text) return {};
@@ -713,12 +814,6 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         const parsed = new Date(value);
         return isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
       };
-      const parseAmount = (value) => {
-        if (!value) return undefined;
-        const cleaned = value.replace(/[^0-9.\-]+/g, "");
-        const num = parseFloat(cleaned);
-        return Number.isNaN(num) ? undefined : num;
-      };
 
       return {
         supplier: findValue("supplier"),
@@ -732,11 +827,13 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
     const simpleResult = simpleExtract(rawText);
 
     let aiResult = null;
+    let aiFailed = false;
     try {
       aiResult = await extractInvoiceFromText(rawText);
       console.log("AI extraction result:", aiResult);
     } catch (err) {
       console.error("AI extraction failed:", err);
+      aiFailed = true;
     }
 
     const mergedInvoice = { ...fallbackInvoice };
@@ -778,6 +875,11 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
 
     mergedInvoice.file_ref = fileRef ?? mergedInvoice.file_ref;
 
+    const needsReview = parseFailed || aiFailed || !aiResult;
+    if (needsReview) {
+      mergedInvoice.status = "Needs info";
+    }
+
     try {
       const inserted = await insertInvoice(mergedInvoice);
       let storedFile = null;
@@ -797,8 +899,10 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         }
       }
       return res.json({
+        success: true,
         status: "ok",
         message: "File uploaded",
+        needs_review: needsReview,
         file: {
           originalName: req.file.originalname,
           storedName: req.file.filename,
