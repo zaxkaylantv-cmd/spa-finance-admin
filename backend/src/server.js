@@ -151,9 +151,12 @@ app.get("/api/auth-status", (req, res) => {
   });
 });
 
-app.get("/api/invoices", async (_req, res) => {
+app.get("/api/invoices", async (req, res) => {
   try {
-    const invoices = await getInvoices();
+    const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
+    const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
+
+    const invoices = await getInvoices({ includeArchived });
     res.json({ invoices });
   } catch (err) {
     console.error("Failed to fetch invoices", err);

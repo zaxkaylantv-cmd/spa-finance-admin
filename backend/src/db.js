@@ -347,9 +347,13 @@ db.serialize(() => {
   });
 });
 
-const getInvoices = () =>
+const getInvoices = ({ includeArchived = false } = {}) =>
   new Promise((resolve, reject) => {
-    db.all("SELECT * FROM invoices WHERE archived = 0", (err, rows) => {
+    let sql = "SELECT *, COALESCE(CAST(archived AS INTEGER), 0) AS archived FROM invoices";
+    if (!includeArchived) {
+      sql += " WHERE COALESCE(CAST(archived AS INTEGER), 0) = 0";
+    }
+    db.all(sql, (err, rows) => {
       if (err) return reject(err);
       resolve(rows);
     });
@@ -422,8 +426,9 @@ const markInvoicePaid = async (id) => {
 const archiveInvoice = async (id) => {
   const existing = await findInvoiceById(id);
   if (!existing) return null;
+  const now = new Date().toISOString();
   await new Promise((resolve, reject) => {
-    db.run("UPDATE invoices SET archived = 1 WHERE id = ?", [id], (err) => {
+    db.run("UPDATE invoices SET archived = 1, updated_at = ? WHERE id = ?", [now, id], (err) => {
       if (err) return reject(err);
       resolve();
     });
@@ -615,7 +620,7 @@ const archiveFile = async (id) => {
 const getRecentInvoicesBySupplier = (supplier, limit = 10) =>
   new Promise((resolve, reject) => {
     db.all(
-      "SELECT * FROM invoices WHERE supplier = ? ORDER BY id DESC LIMIT ?",
+      "SELECT *, COALESCE(CAST(archived AS INTEGER), 0) AS archived FROM invoices WHERE supplier = ? AND COALESCE(CAST(archived AS INTEGER), 0) = 0 ORDER BY id DESC LIMIT ?",
       [supplier, limit],
       (err, rows) => {
         if (err) return reject(err);

@@ -9,11 +9,14 @@ import { mockInvoices } from "./data/mockInvoices";
 import { tryFetchApi } from "./utils/api";
 import { tenantConfig } from "./config/tenant";
 
+const isArchived = (inv: any) => inv?.archived === 1 || inv?.archived === true || inv?.archived === "1";
+
 type TabKey = "dashboard" | "documents" | "cashflow" | "tips" | "settings";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [invoices, setInvoices] = useState<Invoice[]>(() => mockInvoices);
+  const [loadWarning, setLoadWarning] = useState(false);
   const [appKey, setAppKey] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem("appKey") || "";
@@ -35,11 +38,21 @@ export default function App() {
           const normalized = data.invoices.map((inv: any) => ({
             ...inv,
             id: String(inv.id),
+            archived: inv.archived,
+            status: isArchived(inv) ? ("Archived" as InvoiceStatus) : inv.status,
           }));
+          setLoadWarning(false);
           setInvoices(normalized as Invoice[]);
         }
       } catch (err) {
-        console.warn("Falling back to mockInvoices; backend not reachable", err);
+        if (import.meta.env.DEV) {
+          console.warn("Falling back to mockInvoices; backend not reachable", err);
+          setInvoices(mockInvoices);
+        } else {
+          console.warn("Live invoices not reachable; showing warning banner", err);
+          setLoadWarning(true);
+          setInvoices([]);
+        }
       }
     };
     loadInvoices();
@@ -50,7 +63,10 @@ export default function App() {
     window.localStorage.setItem("appKey", appKey);
   }, [appKey]);
 
-  const activeInvoices = useMemo(() => invoices.filter((inv) => inv.status !== "Archived"), [invoices]);
+  const activeInvoices = useMemo(
+    () => invoices.filter((inv) => !isArchived(inv) && inv.status !== "Archived"),
+    [invoices],
+  );
 
   const markAsPaid = async (id: string) => {
     setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, status: "Paid" as InvoiceStatus } : inv)));
@@ -68,13 +84,23 @@ export default function App() {
   };
 
   const archiveInvoice = async (id: string) => {
-    setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, status: "Archived" as InvoiceStatus } : inv)));
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === id ? { ...inv, archived: 1, status: "Archived" as InvoiceStatus } : inv,
+      ),
+    );
     try {
       const res = await tryFetchApi(`/api/invoices/${id}/archive`, { method: "POST" });
       const data = await res.json();
       if (data?.invoice) {
+        const normalized = {
+          ...data.invoice,
+          id: String(data.invoice.id),
+          archived: data.invoice.archived,
+          status: isArchived(data.invoice) ? ("Archived" as InvoiceStatus) : data.invoice.status,
+        };
         setInvoices((prev) =>
-          prev.map((inv) => (inv.id === id ? { ...inv, ...data.invoice, id: String(data.invoice.id) } : inv)),
+          prev.map((inv) => (inv.id === id ? { ...inv, ...normalized } : inv)),
         );
       }
     } catch (err) {
@@ -151,6 +177,11 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10 space-y-8">
+        {loadWarning && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 shadow-sm">
+            Unable to load live invoices. Please refresh.
+          </div>
+        )}
         {activeTab === "dashboard" && <DashboardTab invoices={activeInvoices} />}
         {activeTab === "documents" && (
           <DocumentsTab
