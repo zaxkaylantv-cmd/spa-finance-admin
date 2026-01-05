@@ -870,6 +870,11 @@ export default function DocumentsTab({
                   {selectedDoc.supplier} · {selectedDoc.invoiceNumber}
                 </p>
                 <p className="text-sm text-slate-500">AI pulled the details for you. Review, adjust, and move on.</p>
+                {selectedDoc && (selectedDoc as any).needs_review ? (
+                  <span className="mt-2 inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                    Needs review
+                  </span>
+                ) : null}
               </div>
               <button className="text-slate-500 hover:text-slate-800" onClick={() => setSelectedDocId(null)}>
                 Close

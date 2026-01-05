@@ -31,12 +31,14 @@ const {
 } = require("./db");
 const fs = require("fs");
 const { PDFParse } = require("pdf-parse");
-const { extractInvoiceFromText } = require("./ai/invoiceExtractor");
+const { extractInvoiceFromText, extractInvoiceFromImage } = require("./ai/invoiceExtractor");
 const { extractReceiptFromImage } = require("./ai/receiptExtractor");
 const { buildLocalFileRef } = require("./storage/localStorage");
 const { generateInvoiceActions } = require("./ai/actions");
 const OpenAI = require("openai");
 const { createReadStream } = require("fs");
+const os = require("os");
+const { execFile } = require("child_process");
 
 const PORT = process.env.PORT || 3002;
 const app = express();
@@ -686,76 +688,34 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
     const toISO = (d) => d.toISOString().slice(0, 10);
     const weekLabelFromDate = (date) => `Week of ${date}`;
 
-    if (isImage) {
-      const needsReviewInvoice = {
-        supplier: "Uploaded invoice",
-        invoice_number: `${req.file.originalname} — needs details`,
-        issue_date: null,
-        due_date: null,
-        amount: 0,
-        status: "Needs info",
-        category: null,
-        source: "Upload",
-        week_label: null,
-        archived: 0,
-        doc_type: "invoice",
-        file_kind: "image",
-        created_at: nowIso,
-        updated_at: nowIso,
-        file_ref: fileRef,
-      };
-      try {
-        const inserted = await insertInvoice(needsReviewInvoice);
-        let storedFile = null;
-        if (inserted?.id) {
-          try {
-            storedFile = await insertFile({
-              owner_type: "invoice",
-              owner_id: inserted.id,
-              file_ref: fileRef || null,
-              original_filename: req.file.originalname || null,
-              mime_type: req.file.mimetype || null,
-              file_size: req.file.size || null,
-              file_hash: fileHash,
-            });
-          } catch (fileErr) {
-            console.error("Failed to insert file metadata", fileErr);
-          }
-        }
-        return res.json({
-          success: true,
-          needs_review: true,
-          message: "Image uploaded; invoice queued for manual review.",
-          invoice: inserted,
-          file_ref: fileRef ?? null,
-          file_record: storedFile,
-        });
-      } catch (err) {
-        console.error("Image upload insert error:", err);
-        return res.status(500).json({ error: "Upload failed to save invoice" });
-      }
-    }
-
     const fallbackInvoice = {
       supplier: "Uploaded invoice",
       invoice_number: req.file.originalname,
       issue_date: toISO(today),
       due_date: toISO(due),
-      amount: 0,
+      amount: null,
       status: "Upcoming",
       category: "Uncategorised",
       source: "Upload",
       week_label: weekLabelFromDate(toISO(due)),
       archived: 0,
+      vat_amount: null,
       doc_type: "invoice",
-      file_kind: "pdf",
+      file_kind: isImage ? "image" : "pdf",
       created_at: nowIso,
       updated_at: nowIso,
       file_ref: fileRef,
+      file_hash: fileHash,
+      doc_kind: "invoice",
+      needs_review: 0,
+      confidence: null,
+      extracted_source: null,
+      extracted_json: null,
     };
 
     let rawText = "";
     let parseFailed = false;
+    let extractedSource = null;
     const shouldTreatAsText =
       mimetype.startsWith("text/") ||
       mimetype === "application/octet-stream" ||
@@ -786,6 +746,45 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
         rawText = `Uploaded invoice file: ${req.file.originalname}. Extract key invoice details.`;
         console.log("Falling back to generic prompt text for PDF.");
       }
+    } else if (isImage) {
+      let tmpDir;
+      try {
+        tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "invoice-ocr-"));
+        const inputPath = path.join(tmpDir, "input.bin");
+        const pngPath = path.join(tmpDir, "converted.png");
+        await fs.promises.writeFile(inputPath, uploadedBuffer);
+        await new Promise((resolve, reject) => {
+          execFile(
+            "convert",
+            [inputPath, "-auto-orient", "-colorspace", "Gray", "-density", "300", "-strip", "-normalize", pngPath],
+            { timeout: 20000 },
+            (err) => {
+              if (err) return reject(err);
+              resolve();
+            },
+          );
+        });
+        const ocrText = await new Promise((resolve, reject) => {
+          execFile("tesseract", [pngPath, "stdout", "-l", "eng"], { timeout: 20000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+            if (err) return reject(err);
+            resolve(stdout || "");
+          });
+        });
+        rawText = typeof ocrText === "string" ? ocrText.slice(0, 20000) : "";
+        extractedSource = rawText ? "image_ocr" : extractedSource;
+        if (!rawText) {
+          parseFailed = true;
+          rawText = `Uploaded invoice file: ${req.file.originalname}. Extract key invoice details.`;
+        }
+      } catch (ocrErr) {
+        console.error("Image OCR failed:", ocrErr);
+        parseFailed = true;
+        rawText = "";
+      } finally {
+        if (tmpDir) {
+          await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        }
+      }
     } else {
       rawText = `Uploaded invoice file: ${req.file.originalname}. Extract key invoice details.`;
       console.log("Raw text source: generic fallback for non-text/non-PDF");
@@ -798,6 +797,24 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       const cleaned = value.replace(/[^0-9.\-]+/g, "");
       const num = parseFloat(cleaned);
       return Number.isNaN(num) ? undefined : num;
+    };
+    const normaliseDate = (value) => {
+      if (!value) return null;
+      const str = String(value).trim();
+      if (!str) return null;
+      const parsed = new Date(str);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return parsed.toISOString().slice(0, 10);
+    };
+    const normaliseNumber = (value) => {
+      if (value === null || value === undefined || value === "") return null;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+    const toNullableNumber = (value) => {
+      if (value === null || value === undefined || value === "" || value === "NaN") return null;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
     };
 
     const simpleExtract = (text) => {
@@ -830,6 +847,9 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
     let aiFailed = false;
     try {
       aiResult = await extractInvoiceFromText(rawText);
+      if (!extractedSource) {
+        extractedSource = isImage ? "image_ocr" : "pdf_text";
+      }
       console.log("AI extraction result:", aiResult);
     } catch (err) {
       console.error("AI extraction failed:", err);
@@ -864,21 +884,62 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
       if (typeof aiAmount === "number" && Number.isFinite(aiAmount)) {
         mergedInvoice.amount = aiAmount;
       }
+      const aiSubtotal =
+        typeof aiResult.subtotal === "number" && Number.isFinite(aiResult.subtotal)
+          ? aiResult.subtotal
+          : typeof aiResult.subtotal === "string"
+            ? parseAmount(aiResult.subtotal)
+            : undefined;
+      if (typeof aiSubtotal === "number" && Number.isFinite(aiSubtotal)) {
+        mergedInvoice.subtotal = aiSubtotal;
+      }
+      const aiTax =
+        typeof aiResult.tax === "number" && Number.isFinite(aiResult.tax)
+          ? aiResult.tax
+          : typeof aiResult.tax === "string"
+            ? parseAmount(aiResult.tax)
+            : undefined;
+      if (typeof aiTax === "number" && Number.isFinite(aiTax)) {
+        mergedInvoice.tax = aiTax;
+      }
       mergedInvoice.status =
         (typeof aiResult.status === "string" && aiResult.status.trim()) || mergedInvoice.status;
       mergedInvoice.category =
         (typeof aiResult.category === "string" && aiResult.category.trim()) || mergedInvoice.category;
       mergedInvoice.week_label = aiResult.due_date ? weekLabelFromDate(aiResult.due_date) : mergedInvoice.week_label;
+      mergedInvoice.confidence =
+        typeof aiResult.confidence === "number" && Number.isFinite(aiResult.confidence) ? aiResult.confidence : null;
     } else {
       console.error("AI extraction failed or returned null:", aiResult);
     }
 
     mergedInvoice.file_ref = fileRef ?? mergedInvoice.file_ref;
+    mergedInvoice.extracted_source = extractedSource;
+    mergedInvoice.extracted_json = aiResult ? JSON.stringify(aiResult).slice(0, 8000) : null;
 
-    const needsReview = parseFailed || aiFailed || !aiResult;
+    const needsReview =
+      parseFailed ||
+      aiFailed ||
+      !aiResult ||
+      !mergedInvoice.supplier ||
+      !mergedInvoice.invoice_number ||
+      mergedInvoice.amount === null ||
+      (typeof mergedInvoice.confidence === "number" && mergedInvoice.confidence < 0.5);
     if (needsReview) {
       mergedInvoice.status = "Needs info";
+      mergedInvoice.needs_review = 1;
+    } else {
+      mergedInvoice.needs_review = 0;
     }
+
+    mergedInvoice.issue_date = normaliseDate(mergedInvoice.issue_date);
+    mergedInvoice.due_date = normaliseDate(mergedInvoice.due_date);
+    mergedInvoice.amount = toNullableNumber(mergedInvoice.amount);
+    mergedInvoice.vat_amount = toNullableNumber(mergedInvoice.vat_amount);
+    mergedInvoice.merchant = mergedInvoice.merchant || null;
+    mergedInvoice.category = mergedInvoice.category || null;
+    mergedInvoice.supplier = (mergedInvoice.supplier || "").toString().trim() || null;
+    mergedInvoice.invoice_number = (mergedInvoice.invoice_number || "").toString().trim() || null;
 
     try {
       const inserted = await insertInvoice(mergedInvoice);

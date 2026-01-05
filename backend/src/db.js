@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS invoices (
   file_kind TEXT DEFAULT 'pdf',
   merchant TEXT,
   vat_amount REAL,
+  file_hash TEXT,
+  doc_kind TEXT DEFAULT 'invoice',
+  needs_review INTEGER DEFAULT 0,
+  confidence REAL,
+  extracted_source TEXT,
+  extracted_json TEXT,
   notes TEXT,
   approved_at TEXT,
   approved_by TEXT,
@@ -242,9 +248,21 @@ db.serialize(() => {
     addColumnIfMissing("updated_at", "ALTER TABLE invoices ADD COLUMN updated_at TEXT");
     addColumnIfMissing("file_ref", "ALTER TABLE invoices ADD COLUMN file_ref TEXT");
     addColumnIfMissing("notes", "ALTER TABLE invoices ADD COLUMN notes TEXT");
+    addColumnIfMissing("file_hash", "ALTER TABLE invoices ADD COLUMN file_hash TEXT");
+    addColumnIfMissing("doc_kind", "ALTER TABLE invoices ADD COLUMN doc_kind TEXT DEFAULT 'invoice'");
+    addColumnIfMissing("needs_review", "ALTER TABLE invoices ADD COLUMN needs_review INTEGER DEFAULT 0");
+    addColumnIfMissing("confidence", "ALTER TABLE invoices ADD COLUMN confidence REAL");
+    addColumnIfMissing("extracted_source", "ALTER TABLE invoices ADD COLUMN extracted_source TEXT");
+    addColumnIfMissing("extracted_json", "ALTER TABLE invoices ADD COLUMN extracted_json TEXT");
 
     db.run("UPDATE invoices SET doc_type = 'invoice' WHERE doc_type IS NULL");
     db.run("UPDATE invoices SET file_kind = 'pdf' WHERE file_kind IS NULL");
+    if (existingColumns.has("doc_kind")) {
+      db.run("UPDATE invoices SET doc_kind = 'invoice' WHERE doc_kind IS NULL");
+    }
+    if (existingColumns.has("file_hash")) {
+      db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_file_hash ON invoices(file_hash)");
+    }
   });
   db.run(CREATE_TIPS_TABLE_SQL);
   db.all("PRAGMA table_info(tips);", (err, rows) => {
@@ -548,8 +566,8 @@ const insertInvoice = async (invoice) => {
   const updatedAt = invoice.updated_at || now;
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, doc_type, file_kind, merchant, vat_amount, notes, approved_at, approved_by, created_at, updated_at, file_ref)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO invoices (supplier, invoice_number, issue_date, due_date, amount, status, category, source, week_label, archived, doc_type, file_kind, merchant, vat_amount, notes, approved_at, approved_by, created_at, updated_at, file_ref, file_hash, doc_kind, needs_review, confidence, extracted_source, extracted_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         invoice.supplier,
         invoice.invoice_number,
@@ -571,6 +589,12 @@ const insertInvoice = async (invoice) => {
         createdAt,
         updatedAt,
         invoice.file_ref ?? null,
+        invoice.file_hash ?? null,
+        invoice.doc_kind || "invoice",
+        invoice.needs_review ? 1 : 0,
+        invoice.confidence ?? null,
+        invoice.extracted_source ?? null,
+        invoice.extracted_json ?? null,
       ],
       function (err) {
         if (err) return reject(err);
@@ -716,7 +740,7 @@ const insertReceipt = async (data) =>
   });
 
 const updateInvoice = async (id, fields) => {
-  const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category", "notes", "vat_amount"];
+  const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category", "notes", "vat_amount", "needs_review", "confidence", "extracted_source", "extracted_json", "file_hash", "doc_kind"];
   const keys = allowed.filter((key) => Object.prototype.hasOwnProperty.call(fields, key));
   if (keys.length === 0) return findInvoiceById(id);
 
