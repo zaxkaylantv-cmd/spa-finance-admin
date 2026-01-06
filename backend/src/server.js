@@ -212,15 +212,30 @@ app.get("/api/auth-status", (req, res) => {
 });
 
 app.get("/api/invoices", async (req, res) => {
-  try {
-    const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
-    const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
+  const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    return res.status(500).json({ error: "Supabase not configured" });
+  }
 
-    const invoices = await getInvoices({ includeArchived });
-    res.json({ invoices });
+  const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
+  const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
+
+  try {
+    let query = supabase.from("invoices").select("*").eq("doc_type", "invoice");
+    if (!includeArchived) {
+      query = query.eq("archived", false);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: "Failed to fetch invoices", details: error.message });
+    }
+
+    return res.json({ invoices: data || [] });
   } catch (err) {
-    console.error("Failed to fetch invoices", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Supabase invoices fetch failed", err);
+    return res.status(500).json({ error: "Failed to fetch invoices", details: err.message });
   }
 });
 
