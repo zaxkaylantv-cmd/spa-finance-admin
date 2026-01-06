@@ -216,7 +216,9 @@ export default function DocumentsTab({
       setNotesSavedValue(initialNotes);
       const loadFiles = async () => {
         try {
-          const res = await tryFetchApi(`/api/invoices/${selectedDoc.id}/files`, {
+          const isReceipt = (selectedDoc as any).doc_type === "receipt" || (selectedDoc as any).docType === "receipt";
+          const basePath = isReceipt ? "/api/receipts" : "/api/invoices";
+          const res = await tryFetchApi(`${basePath}/${selectedDoc.id}/files`, {
             headers: {
               ...(appKey ? { "X-APP-KEY": appKey } : {}),
             },
