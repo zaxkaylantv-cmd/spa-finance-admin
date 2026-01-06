@@ -1043,7 +1043,58 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
     mergedInvoice.invoice_number = (mergedInvoice.invoice_number || "").toString().trim() || null;
 
     try {
-      const inserted = await insertInvoice(mergedInvoice);
+      const supabase = getSupabaseAdminClient();
+      if (!supabase) {
+        return res.status(500).json({ error: "Upload failed to save invoice", details: "Supabase not configured" });
+      }
+
+      let parsedExtractedJson = null;
+      if (mergedInvoice.extracted_json) {
+        try {
+          parsedExtractedJson = JSON.parse(mergedInvoice.extracted_json);
+        } catch (_ignore) {
+          parsedExtractedJson = mergedInvoice.extracted_json;
+        }
+      }
+
+      const supabasePayload = {
+        supplier: mergedInvoice.supplier,
+        invoice_number: mergedInvoice.invoice_number,
+        issue_date: mergedInvoice.issue_date,
+        due_date: mergedInvoice.due_date,
+        amount: mergedInvoice.amount,
+        status: mergedInvoice.status,
+        category: mergedInvoice.category,
+        source: mergedInvoice.source,
+        week_label: mergedInvoice.week_label,
+        doc_type: mergedInvoice.doc_type || "invoice",
+        file_kind: mergedInvoice.file_kind,
+        merchant: mergedInvoice.merchant,
+        vat_amount: mergedInvoice.vat_amount,
+        notes: mergedInvoice.notes,
+        approved_at: mergedInvoice.approved_at,
+        approved_by: mergedInvoice.approved_by,
+        created_at: mergedInvoice.created_at,
+        updated_at: mergedInvoice.updated_at,
+        archived: Boolean(mergedInvoice.archived),
+        file_ref: mergedInvoice.file_ref,
+        file_hash: mergedInvoice.file_hash,
+        extracted_source: mergedInvoice.extracted_source,
+        extracted_json: parsedExtractedJson,
+        confidence: mergedInvoice.confidence,
+        doc_kind: mergedInvoice.doc_kind || "invoice",
+        needs_review: Boolean(mergedInvoice.needs_review),
+      };
+
+      const { data: inserted, error: insertError } = await supabase
+        .from("invoices")
+        .insert([supabasePayload])
+        .select("*")
+        .single();
+
+      if (insertError) {
+        return res.status(500).json({ error: "Upload failed to save invoice", details: insertError.message });
+      }
       let storedFile = null;
       if (inserted?.id) {
         try {
