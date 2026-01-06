@@ -11,3 +11,8 @@ _wip-before-readme-restore-*.patch
 
 # Local WIP patches
 _wip-*.patch
+
+# Local env files (never commit)
+backend/.env
+frontend/.env
+*.env.backup-*
