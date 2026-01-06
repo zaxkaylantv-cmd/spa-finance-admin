@@ -1,4 +1,4 @@
-const apiBase = import.meta.env.DEV ? "" : "/spa-finance-api";
+const apiBase = import.meta.env.DEV ? "" : "";
 
 export const getApiBase = () => apiBase;
 
