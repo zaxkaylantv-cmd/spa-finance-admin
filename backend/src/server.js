@@ -1205,7 +1205,58 @@ app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req
     merged.file_ref = fileRef ?? merged.file_ref;
 
     try {
-      const inserted = await insertReceipt(merged);
+      const supabase = getSupabaseAdminClient();
+      if (!supabase) {
+        return res.status(500).json({ error: "Upload failed to save receipt", details: "Supabase not configured" });
+      }
+
+      let parsedExtractedJson = null;
+      if (merged.extracted_json) {
+        try {
+          parsedExtractedJson = JSON.parse(merged.extracted_json);
+        } catch (_ignore) {
+          parsedExtractedJson = merged.extracted_json;
+        }
+      }
+
+      const supabasePayload = {
+        supplier: merged.supplier,
+        invoice_number: merged.invoice_number,
+        issue_date: merged.issue_date,
+        due_date: merged.due_date,
+        amount: merged.amount,
+        status: merged.status,
+        category: merged.category,
+        source: merged.source,
+        week_label: merged.week_label,
+        archived: Boolean(merged.archived),
+        doc_type: "receipt",
+        doc_kind: "receipt",
+        file_kind: merged.file_kind,
+        merchant: merged.merchant,
+        vat_amount: merged.vat_amount,
+        approved_at: merged.approved_at,
+        approved_by: merged.approved_by,
+        created_at: merged.created_at,
+        updated_at: merged.updated_at,
+        file_ref: merged.file_ref,
+        file_hash: merged.file_hash,
+        extracted_source: merged.extracted_source,
+        extracted_json: parsedExtractedJson,
+        confidence: merged.confidence,
+        needs_review: Boolean(merged.needs_review),
+        notes: merged.notes,
+      };
+
+      const { data: inserted, error: insertError } = await supabase
+        .from("invoices")
+        .insert([supabasePayload])
+        .select("*")
+        .single();
+
+      if (insertError) {
+        return res.status(500).json({ error: "Upload failed to save receipt", details: insertError.message });
+      }
       let storedFile = null;
       if (inserted?.id) {
         try {
