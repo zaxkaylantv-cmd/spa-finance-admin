@@ -8,6 +8,7 @@ import type { Invoice, InvoiceStatus } from "./data/mockInvoices";
 import { mockInvoices } from "./data/mockInvoices";
 import { tryFetchApi } from "./utils/api";
 import { tenantConfig } from "./config/tenant";
+import { supabase } from "./utils/supabaseClient";
 
 const isArchived = (inv: any) => inv?.archived === 1 || inv?.archived === true || inv?.archived === "1";
 
@@ -21,6 +22,8 @@ export default function App() {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem("appKey") || "";
   });
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const [sessionPresent, setSessionPresent] = useState<boolean>(false);
   const company = tenantConfig.tenantName;
 
   useEffect(() => {
@@ -28,6 +31,45 @@ export default function App() {
       document.title = `${tenantConfig.tenantName} — ${tenantConfig.productName}`;
     }
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const initAuth = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setSessionEmail(session?.user?.email ?? null);
+      setSessionPresent(Boolean(session));
+    };
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSessionEmail(newSession?.user?.email ?? null);
+      setSessionPresent(Boolean(newSession));
+    });
+    void initAuth();
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleSignIn = async () => {
+    try {
+      await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+    } catch (err) {
+      console.error("Google sign-in failed", err);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      setSessionEmail(null);
+      setSessionPresent(false);
+    } catch (err) {
+      console.error("Sign-out failed", err);
+    }
+  };
 
   useEffect(() => {
     const loadInvoices = async () => {
@@ -164,6 +206,27 @@ export default function App() {
     { key: "settings", label: "Settings" },
   ];
 
+  if (!sessionPresent) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="space-y-1 text-center">
+            <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--spa-muted)]">{tenantConfig.tenantName}</p>
+            <p className="text-lg font-semibold text-slate-900">{tenantConfig.productName}</p>
+            <p className="text-sm text-slate-500">Sign in with your Google account to continue.</p>
+          </div>
+          <button
+            className="w-full rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            onClick={handleSignIn}
+            type="button"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white shadow-sm">
@@ -175,9 +238,26 @@ export default function App() {
             </div>
           </div>
           <div className="hidden items-center gap-3 sm:flex">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--spa-border)] bg-gradient-to-br from-[color:var(--spa-wash)] via-[color:var(--spa-accent-2)] to-[color:var(--spa-surface)] text-slate-800">
-              DC
-            </div>
+            {sessionEmail ? (
+              <>
+                <span className="text-sm text-slate-700">{sessionEmail}</span>
+                <button
+                  className="rounded-md border border-slate-200 px-3 py-1 text-sm text-slate-700 hover:bg-slate-100"
+                  onClick={handleSignOut}
+                  type="button"
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <button
+                className="rounded-md border border-slate-200 px-3 py-1 text-sm text-slate-700 hover:bg-slate-100"
+                onClick={handleSignIn}
+                type="button"
+              >
+                Sign in with Google
+              </button>
+            )}
           </div>
         </div>
         <div className="border-t border-slate-200 bg-slate-50/60">
@@ -192,7 +272,7 @@ export default function App() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  className={`flex itemscenter gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${
                     activeTab === tab.key
                       ? "bg-slate-600 text-white shadow-sm"
                       : "bg-white text-slate-600 border border-transparent hover:border-[color:var(--spa-border)] hover:bg-[color:var(--spa-wash)] hover:text-slate-900"

@@ -5,7 +5,7 @@ import type { Invoice, InvoiceStatus } from "../data/mockInvoices";
 import { formatRangeLabel, isInvoiceInDateRange } from "../utils/dateRangeFilter";
 import type { DateRangeFilter } from "../utils/dateRangeFilter";
 import { getDisplayStatus, getInvoiceDueDate, formatDisplayDate } from "../utils/invoiceDates";
-import { apiUrl } from "../utils/api";
+import { tryFetchApi } from "../utils/api";
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const DASHBOARD_RANGE_KEY = "cashflow_dashboard_date_range";
@@ -55,8 +55,7 @@ export default function DashboardTab({ invoices }: Props) {
       setSummaryError(false);
       try {
         const range = dateRangeFilter || "all";
-        const url = apiUrl(`/api/cashflow-summary?range=${encodeURIComponent(range)}`);
-        const res = await fetch(url);
+        const res = await tryFetchApi(`/api/cashflow-summary?range=${encodeURIComponent(range)}`);
         if (!res.ok) {
           throw new Error(`Cashflow summary request failed with ${res.status}`);
         }

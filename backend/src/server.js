@@ -40,6 +40,7 @@ const { createReadStream } = require("fs");
 const os = require("os");
 const { execFile } = require("child_process");
 const { getSupabaseAdminClient } = require("./supabaseClient");
+const { requireAuthFlexible } = require("./auth");
 
 const PORT = process.env.PORT || 3002;
 const app = express();
@@ -155,6 +156,12 @@ app.get("/api/supabase-status", async (_req, res) => {
     console.error("Supabase status check failed", err);
     return res.json({ ok: false, error: "exception", details: err.message });
   }
+});
+
+app.use("/api", requireAuthFlexible);
+
+app.get("/api/whoami", requireAuthFlexible, (req, res) => {
+  res.json({ ok: true, user: req.user || null });
 });
 
 app.get("/api/supabase-invoices", async (req, res) => {
@@ -407,7 +414,7 @@ app.get("/api/tips", async (_req, res) => {
   }
 });
 
-app.post("/api/ai/invoices/:id/actions", requireAppKey, async (req, res) => {
+app.post("/api/ai/invoices/:id/actions", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid invoice id" });
@@ -445,7 +452,7 @@ app.get("/api/auto-approval-rules", async (req, res) => {
   }
 });
 
-app.post("/api/auto-approval-rules", requireAppKey, async (req, res) => {
+app.post("/api/auto-approval-rules", requireAuthFlexible, async (req, res) => {
   try {
     const { supplier, monthly_limit } = req.body || {};
     if (!supplier || typeof supplier !== "string") {
@@ -495,7 +502,7 @@ app.get("/api/receipts/:id/files", async (req, res) => {
   }
 });
 
-app.get("/api/files/:id/download", requireAppKey, async (req, res) => {
+app.get("/api/files/:id/download", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -513,7 +520,7 @@ app.get("/api/files/:id/download", requireAppKey, async (req, res) => {
   }
 });
 
-app.get("/api/files/download-by-ref", requireAppKey, async (req, res) => {
+app.get("/api/files/download-by-ref", requireAuthFlexible, async (req, res) => {
   try {
     const ref = typeof req.query.ref === "string" ? req.query.ref : "";
     if (!ref) {
@@ -543,7 +550,7 @@ app.get("/api/staff", async (req, res) => {
   }
 });
 
-app.post("/api/staff", requireAppKey, async (req, res) => {
+app.post("/api/staff", requireAuthFlexible, async (req, res) => {
   try {
     const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     if (!rawName || rawName.length < 2) {
@@ -564,7 +571,7 @@ app.post("/api/staff", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/staff/:id/deactivate", requireAppKey, async (req, res) => {
+app.post("/api/staff/:id/deactivate", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -579,7 +586,7 @@ app.post("/api/staff/:id/deactivate", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/staff/:id/reactivate", requireAppKey, async (req, res) => {
+app.post("/api/staff/:id/reactivate", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -594,7 +601,7 @@ app.post("/api/staff/:id/reactivate", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/invoices/:id/mark-paid", requireAppKey, async (req, res) => {
+app.post("/api/invoices/:id/mark-paid", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const updated = await markInvoicePaid(id);
@@ -606,7 +613,7 @@ app.post("/api/invoices/:id/mark-paid", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/invoices/:id/archive", requireAppKey, async (req, res) => {
+app.post("/api/invoices/:id/archive", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const updated = await archiveInvoice(id);
@@ -618,7 +625,7 @@ app.post("/api/invoices/:id/archive", requireAppKey, async (req, res) => {
   }
 });
 
-app.patch("/api/invoices/:id", requireAppKey, async (req, res) => {
+app.patch("/api/invoices/:id", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const allowed = ["supplier", "invoice_number", "issue_date", "due_date", "amount", "status", "category", "notes", "vat_amount"];
@@ -665,7 +672,7 @@ app.patch("/api/invoices/:id", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/tips", requireAppKey, async (req, res) => {
+app.post("/api/tips", requireAuthFlexible, async (req, res) => {
   try {
     const { tip_date, method, amount, note, customer_name, staff_name } = req.body || {};
     if (!tip_date) {
@@ -694,7 +701,7 @@ app.post("/api/tips", requireAppKey, async (req, res) => {
   }
 });
 
-app.patch("/api/tips/:id", requireAppKey, async (req, res) => {
+app.patch("/api/tips/:id", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const allowed = ["tip_date", "method", "amount", "note", "customer_name", "staff_name"];
@@ -742,7 +749,7 @@ app.patch("/api/tips/:id", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/tips/:id/archive", requireAppKey, async (req, res) => {
+app.post("/api/tips/:id/archive", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const archived = await archiveTip(id);
@@ -754,7 +761,7 @@ app.post("/api/tips/:id/archive", requireAppKey, async (req, res) => {
   }
 });
 
-app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req, res) => {
+app.post("/api/upload-invoice", requireAuthFlexible, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       console.warn("Upload attempted with no file");
@@ -1140,7 +1147,7 @@ app.post("/api/upload-invoice", requireAppKey, upload.single("file"), async (req
   }
 });
 
-app.post("/api/upload-receipt", requireAppKey, upload.single("file"), async (req, res) => {
+app.post("/api/upload-receipt", requireAuthFlexible, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       console.warn("Receipt upload attempted with no file");
