@@ -183,6 +183,34 @@ app.get("/api/supabase-invoices", async (req, res) => {
   }
 });
 
+app.get("/api/receipts", async (req, res) => {
+  const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    return res.status(500).json({ error: "Supabase not configured" });
+  }
+
+  const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
+  const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
+
+  try {
+    let query = supabase.from("invoices").select("*").eq("doc_type", "receipt");
+    if (!includeArchived) {
+      query = query.eq("archived", false);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: "Failed to fetch receipts", details: error.message });
+    }
+
+    return res.json({ receipts: data || [] });
+  } catch (err) {
+    console.error("Supabase receipts fetch failed", err);
+    return res.status(500).json({ error: "Failed to fetch receipts", details: err.message });
+  }
+});
+
 app.get("/api/ai/status", (req, res) => {
   const requireKey = (process.env.APP_REQUIRE_KEY || "1").toLowerCase();
   const keyRequired = !(requireKey === "0" || requireKey === "false");
