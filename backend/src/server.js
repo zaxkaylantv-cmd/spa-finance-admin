@@ -39,6 +39,7 @@ const OpenAI = require("openai");
 const { createReadStream } = require("fs");
 const os = require("os");
 const { execFile } = require("child_process");
+const { getSupabaseAdminClient } = require("./supabaseClient");
 
 const PORT = process.env.PORT || 3002;
 const app = express();
@@ -123,6 +124,33 @@ const aiClient = (() => {
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+app.get("/api/supabase-status", async (_req, res) => {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    return res.json({ ok: false, error: "missing_env" });
+  }
+
+  try {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) {
+      return res.json({ ok: false, error: "init_failed" });
+    }
+
+    const { error } = await supabase.from("invoices").select("id").limit(1);
+
+    if (error) {
+      return res.json({ ok: false, error: "query_failed", details: error.message });
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Supabase status check failed", err);
+    return res.json({ ok: false, error: "exception", details: err.message });
+  }
 });
 
 app.get("/api/ai/status", (req, res) => {
