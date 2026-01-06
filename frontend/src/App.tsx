@@ -35,14 +35,45 @@ export default function App() {
         const res = await tryFetchApi("/api/invoices");
         const data = (await res.json()) as { invoices?: Invoice[] };
         if (Array.isArray(data.invoices)) {
-          const normalized = data.invoices.map((inv: any) => ({
+          const normalizedInvoices = data.invoices.map((inv: any) => ({
             ...inv,
             id: String(inv.id),
             archived: inv.archived,
             status: isArchived(inv) ? ("Archived" as InvoiceStatus) : inv.status,
           }));
+          let receipts: any[] = [];
+          try {
+            const receiptsRes = await tryFetchApi("/api/receipts");
+            const receiptsData = (await receiptsRes.json()) as { receipts?: any[] };
+            if (Array.isArray(receiptsData.receipts)) {
+              receipts = receiptsData.receipts.map((rec: any) => ({
+                ...rec,
+                id: String(rec.id),
+                archived: rec.archived,
+                doc_type: rec.doc_type || rec.docType || "receipt",
+                status: isArchived(rec) ? ("Archived" as InvoiceStatus) : rec.status,
+              }));
+            }
+          } catch (err) {
+            console.warn("Receipts fetch failed; continuing with invoices only", err);
+          }
+
+          const combined = [...normalizedInvoices, ...receipts];
+          combined.sort((a, b) => {
+            const aCreated = (a as any).created_at || (a as any).createdAt || null;
+            const bCreated = (b as any).created_at || (b as any).createdAt || null;
+            if (aCreated && bCreated && aCreated !== bCreated) {
+              return aCreated > bCreated ? -1 : 1;
+            }
+            const aId = Number(a.id);
+            const bId = Number(b.id);
+            if (!Number.isNaN(aId) && !Number.isNaN(bId) && aId !== bId) {
+              return bId - aId;
+            }
+            return 0;
+          });
           setLoadWarning(false);
-          setInvoices(normalized as Invoice[]);
+          setInvoices(combined as Invoice[]);
         }
       } catch (err) {
         if (import.meta.env.DEV) {
