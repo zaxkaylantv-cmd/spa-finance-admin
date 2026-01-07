@@ -455,8 +455,16 @@ Write 2-4 concise bullet points (or 2-3 short sentences) about upcoming cash out
 
 app.get("/api/tips", async (_req, res) => {
   try {
-    const tips = await getTips();
-    res.json({ tips });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("tips")
+      .select("*")
+      .eq("archived", false)
+      .order("tip_date", { ascending: false })
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ tips: data || [] });
   } catch (err) {
     console.error("Failed to fetch tips", err);
     res.status(500).json({ error: "Internal server error" });
@@ -501,6 +509,7 @@ app.get("/api/auto-approval-rules", async (req, res) => {
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
 app.post("/api/auto-approval-rules", requireAuthFlexible, async (req, res) => {
   try {
     const { supplier, monthly_limit } = req.body || {};
@@ -511,8 +520,19 @@ app.post("/api/auto-approval-rules", requireAuthFlexible, async (req, res) => {
     if (!Number.isFinite(limit) || limit <= 0) {
       return res.status(400).json({ error: "monthly_limit must be greater than zero" });
     }
-    const inserted = await insertAutoApprovalRule({ supplier, monthly_limit: limit });
-    res.json(inserted);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("auto_approval_rules")
+      .insert({ supplier, monthly_limit: limit, enabled: true, org_id: null, created_at: now })
+      .select("*")
+      .single();
+    if (error) {
+      console.error("Failed to insert auto-approval rule", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    res.json(data);
   } catch (err) {
     console.error("Failed to insert auto-approval rule", err);
     res.status(500).json({ error: "Internal server error" });
@@ -629,7 +649,11 @@ app.get("/api/staff", async (req, res) => {
   try {
     const includeInactiveParam = String(req.query.includeInactive || "").toLowerCase();
     const includeInactive = includeInactiveParam === "1" || includeInactiveParam === "true";
-    const staff = await getStaff({ includeInactive });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase.from("staff").select("*").order("name", { ascending: true });
+    if (error) throw error;
+    const staff = includeInactive ? data || [] : (data || []).filter((row) => row.active);
     res.json({ staff });
   } catch (err) {
     console.error("Failed to fetch staff", err);
@@ -637,51 +661,86 @@ app.get("/api/staff", async (req, res) => {
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
+// Moved to Supabase to avoid local PII storage.
 app.post("/api/staff", requireAuthFlexible, async (req, res) => {
   try {
     const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     if (!rawName || rawName.length < 2) {
       return res.status(400).json({ error: "name must be at least 2 characters" });
     }
-    try {
-      const inserted = await insertStaff({ name: rawName });
-      return res.json(inserted);
-    } catch (err) {
-      if (err && err.code === "SQLITE_CONSTRAINT") {
-        return res.status(409).json({ error: "name already exists" });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("staff")
+      .insert({ name: rawName, active: true, org_id: null, created_at: now, updated_at: now })
+      .select("*")
+      .single();
+    if (error) {
+      if (String(error.message || "").toLowerCase().includes("duplicate")) {
+        return res.status(409).json({ error: "Staff member already exists" });
       }
-      throw err;
+      console.error("Failed to insert staff", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
+    return res.json(data);
   } catch (err) {
     console.error("Failed to insert staff", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
 app.post("/api/staff/:id/deactivate", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: "Invalid staff id" });
     }
-    const updated = await setStaffActive(id, false);
-    if (!updated) return res.status(404).json({ error: "Staff not found" });
-    res.json({ success: true, staff: updated });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("staff")
+      .update({ active: false, updated_at: now })
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to deactivate staff", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!data) return res.status(404).json({ error: "Staff not found" });
+    res.json({ success: true, staff: data });
   } catch (err) {
     console.error("Failed to deactivate staff", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
 app.post("/api/staff/:id/reactivate", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: "Invalid staff id" });
     }
-    const updated = await setStaffActive(id, true);
-    if (!updated) return res.status(404).json({ error: "Staff not found" });
-    res.json({ success: true, staff: updated });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("staff")
+      .update({ active: true, updated_at: now })
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to reactivate staff", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!data) return res.status(404).json({ error: "Staff not found" });
+    res.json({ success: true, staff: data });
   } catch (err) {
     console.error("Failed to reactivate staff", err);
     res.status(500).json({ error: "Internal server error" });
@@ -759,6 +818,7 @@ app.patch("/api/invoices/:id", requireAuthFlexible, async (req, res) => {
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
 app.post("/api/tips", requireAuthFlexible, async (req, res) => {
   try {
     const { tip_date, method, amount, note, customer_name, staff_name } = req.body || {};
@@ -773,21 +833,37 @@ app.post("/api/tips", requireAuthFlexible, async (req, res) => {
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ error: "amount must be greater than zero" });
     }
-    const inserted = await insertTip({
-      tip_date,
-      method: normalisedMethod,
-      amount: parsedAmount,
-      note,
-      customer_name: typeof customer_name === "string" ? customer_name.trim() || null : null,
-      staff_name: typeof staff_name === "string" ? staff_name.trim() || null : null,
-    });
-    res.json(inserted);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("tips")
+      .insert({
+        tip_date,
+        method: normalisedMethod,
+        amount: parsedAmount,
+        note: note ?? null,
+        customer_name: typeof customer_name === "string" ? customer_name.trim() || null : null,
+        staff_name: typeof staff_name === "string" ? staff_name.trim() || null : null,
+        archived: false,
+        org_id: null,
+        created_at: now,
+        updated_at: now,
+      })
+      .select("*")
+      .single();
+    if (error) {
+      console.error("Failed to insert tip", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    res.json(data);
   } catch (err) {
     console.error("Failed to insert tip", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
 app.patch("/api/tips/:id", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -827,19 +903,58 @@ app.patch("/api/tips/:id", requireAuthFlexible, async (req, res) => {
       payload.staff_name = payload.staff_name.trim();
     }
 
-    const updated = await updateTip(id, payload);
-    if (!updated) return res.status(404).json({ error: "Tip not found" });
-    res.json(updated);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { error: updateErr } = await supabase
+      .from("tips")
+      .update({ ...payload, updated_at: now })
+      .eq("id", id);
+    if (updateErr) {
+      console.error("Failed to update tip", updateErr);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    const { data: updatedRow, error: fetchErr } = await supabase
+      .from("tips")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchErr) {
+      console.error("Failed to fetch tip", fetchErr);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!updatedRow) return res.status(404).json({ error: "Tip not found" });
+    res.json(updatedRow);
   } catch (err) {
     console.error("Failed to update tip", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
+// Moved to Supabase to avoid local PII storage.
 app.post("/api/tips/:id/archive", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const archived = await archiveTip(id);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { error: updateErr } = await supabase
+      .from("tips")
+      .update({ archived: true, updated_at: now })
+      .eq("id", id);
+    if (updateErr) {
+      console.error("Failed to archive tip", updateErr);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    const { data: archived, error: fetchErr } = await supabase
+      .from("tips")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchErr) {
+      console.error("Failed to fetch archived tip", fetchErr);
+      return res.status(500).json({ error: "Internal server error" });
+    }
     if (!archived) return res.status(404).json({ error: "Tip not found" });
     res.json({ success: true, tip: archived });
   } catch (err) {
