@@ -762,9 +762,21 @@ app.post("/api/invoices/:id/mark-paid", requireAuthFlexible, async (req, res) =>
 app.post("/api/invoices/:id/archive", requireAuthFlexible, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const updated = await archiveInvoice(id);
-    if (!updated) return res.status(404).json({ error: "Invoice not found" });
-    res.json({ success: true, invoice: updated });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("invoices")
+      .update({ archived: true, updated_at: now })
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to archive invoice", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!data) return res.status(404).json({ error: "Invoice not found" });
+    res.json({ success: true, invoice: data });
   } catch (err) {
     console.error("Failed to archive invoice", err);
     res.status(500).json({ error: "Internal server error" });
