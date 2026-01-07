@@ -369,7 +369,18 @@ export default function DocumentsTab({
         return;
       }
       if (ref && ref.startsWith("gdrive:")) {
-        setFileMessage("Google Drive files coming soon.");
+        const res = await tryFetchApi(`/api/files/download-by-ref?ref=${encodeURIComponent(ref)}`);
+        if (!res.ok) {
+          setAiMessage("Unable to download file.");
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        const link = data?.link;
+        if (link) {
+          window.open(link, "_blank", "noopener,noreferrer");
+        } else {
+          setAiMessage("Unable to download file.");
+        }
         return;
       }
       const targetPath = fileId

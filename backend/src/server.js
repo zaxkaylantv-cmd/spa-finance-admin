@@ -41,6 +41,14 @@ const os = require("os");
 const { execFile } = require("child_process");
 const { getSupabaseAdminClient } = require("./supabaseClient");
 const { requireAuthFlexible } = require("./auth");
+const {
+  generateAuthUrl,
+  exchangeCodeForTokens,
+  saveRefreshToken,
+  getTokenStatus,
+  consumeState,
+} = require("./google/driveAuth");
+const { uploadFileToDrive } = require("./google/driveUpload");
 
 const PORT = process.env.PORT || 3002;
 const app = express();
@@ -159,6 +167,47 @@ app.get("/api/supabase-status", async (_req, res) => {
 });
 
 app.use("/api", requireAuthFlexible);
+
+app.get("/api/google/drive/status", async (_req, res) => {
+  try {
+    const status = await getTokenStatus();
+    return res.json(status);
+  } catch (err) {
+    console.error("Drive status error", err);
+    return res.status(500).json({ error: "Failed to fetch drive status" });
+  }
+});
+
+app.get("/api/google/drive/connect", async (_req, res) => {
+  try {
+    const { url } = generateAuthUrl();
+    return res.redirect(url);
+  } catch (err) {
+    console.error("Drive connect error", err);
+    return res.status(500).json({ error: "Failed to start Google OAuth" });
+  }
+});
+
+app.get("/api/google/oauth/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query || {};
+    if (!code || !state || typeof code !== "string" || typeof state !== "string" || !consumeState(state)) {
+      return res.status(400).json({ error: "Invalid state or code" });
+    }
+    const { tokens, email } = await exchangeCodeForTokens(code);
+    const refreshToken = tokens?.refresh_token;
+    if (!refreshToken) {
+      return res
+        .status(400)
+        .json({ error: "No refresh_token returned. Remove app access in Google Account and reconnect." });
+    }
+    await saveRefreshToken({ email, refresh_token: refreshToken });
+    return res.redirect("https://spa-finance.kalyanai.io/settings?drive=connected");
+  } catch (err) {
+    console.error("Drive callback error", err);
+    return res.status(500).json({ error: "OAuth callback failed" });
+  }
+});
 
 app.get("/api/whoami", requireAuthFlexible, (req, res) => {
   res.json({ ok: true, user: req.user || null });
@@ -476,9 +525,18 @@ app.get("/api/invoices/:id/files", async (req, res) => {
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: "Invalid invoice id" });
     }
-    const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
-    const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
-    const files = await getFilesForOwner({ owner_type: "invoice", owner_id: id, includeArchived });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("files")
+      .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+      .eq("owner_type", "invoice")
+      .eq("owner_id", id);
+    if (error) throw error;
+    const files = (data || []).map((row) => ({
+      ...row,
+      kind: row.drive_file_id || (row.file_ref || "").startsWith("gdrive:") ? "gdrive" : "local",
+    }));
     res.json({ files });
   } catch (err) {
     console.error("Failed to fetch invoice files", err);
@@ -492,9 +550,18 @@ app.get("/api/receipts/:id/files", async (req, res) => {
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: "Invalid receipt id" });
     }
-    const includeArchivedParam = String(req.query.includeArchived || "").toLowerCase();
-    const includeArchived = includeArchivedParam === "1" || includeArchivedParam === "true";
-    const files = await getFilesForOwner({ owner_type: "receipt", owner_id: id, includeArchived });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("files")
+      .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+      .eq("owner_type", "receipt")
+      .eq("owner_id", id);
+    if (error) throw error;
+    const files = (data || []).map((row) => ({
+      ...row,
+      kind: row.drive_file_id || (row.file_ref || "").startsWith("gdrive:") ? "gdrive" : "local",
+    }));
     res.json({ files });
   } catch (err) {
     console.error("Failed to fetch receipt files", err);
@@ -508,12 +575,22 @@ app.get("/api/files/:id/download", requireAuthFlexible, async (req, res) => {
     if (!Number.isFinite(id)) {
       return res.status(400).json({ error: "Invalid file id" });
     }
-    const record = await findFileById(id);
-    if (!record) {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("files")
+      .select("drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+      .eq("id", id)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
       return res.status(404).json({ error: "File not found" });
     }
-
-    return streamFileRecord(record, res);
+    if (data.drive_file_id || (data.file_ref || "").startsWith("gdrive:")) {
+      return res.json({ link: data.web_view_link, drive_file_id: data.drive_file_id || data.file_ref });
+    }
+    return streamFileRecord({ file_ref: data.file_ref, mime_type: data.mime_type, original_filename: data.original_filename }, res);
   } catch (err) {
     console.error("Failed to download file", err);
     res.status(500).json({ error: "Internal server error" });
@@ -526,12 +603,22 @@ app.get("/api/files/download-by-ref", requireAuthFlexible, async (req, res) => {
     if (!ref) {
       return res.status(400).json({ error: "ref query parameter is required" });
     }
-    const record = await findFileByRef(ref);
-    if (!record) {
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("files")
+      .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+      .eq("file_ref", ref)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
       return res.status(404).json({ error: "File not found" });
     }
-
-    return streamFileRecord(record, res);
+    if (data.drive_file_id || (data.file_ref || "").startsWith("gdrive:")) {
+      return res.json({ link: data.web_view_link, drive_file_id: data.drive_file_id || data.file_ref });
+    }
+    return streamFileRecord({ file_ref: data.file_ref, mime_type: data.mime_type, original_filename: data.original_filename }, res);
   } catch (err) {
     console.error("Failed to download file", err);
     res.status(500).json({ error: "Internal server error" });
@@ -1106,36 +1193,67 @@ app.post("/api/upload-invoice", requireAuthFlexible, upload.single("file"), asyn
       if (insertError) {
         return res.status(500).json({ error: "Upload failed to save invoice", details: insertError.message });
       }
-      let storedFile = null;
+
+      let fileRecord = null;
       if (inserted?.id) {
         try {
-          storedFile = await insertFile({
-            owner_type: "invoice",
-            owner_id: inserted.id,
-            file_ref: fileRef || null,
-            original_filename: req.file.originalname || null,
-            mime_type: req.file.mimetype || null,
-            file_size: req.file.size || null,
-            file_hash: fileHash,
+          const driveUpload = await uploadFileToDrive({
+            filePath: req.file.path,
+            mimeType: req.file.mimetype,
+            name: req.file.originalname,
           });
+
+          const now = new Date().toISOString();
+          const driveRef = `gdrive:${driveUpload.drive_file_id}`;
+
+          const { error: fileErr } = await supabase
+            .from("files")
+            .upsert(
+              {
+                owner_type: "invoice",
+                owner_id: inserted.id,
+                drive_file_id: driveUpload.drive_file_id,
+                web_view_link: driveUpload.webViewLink,
+                file_ref: driveRef,
+                file_hash: fileHash,
+                original_filename: req.file.originalname,
+                mime_type: req.file.mimetype,
+                created_at: now,
+                updated_at: now,
+              },
+              { onConflict: "owner_type,owner_id" }
+            );
+          if (fileErr) throw fileErr;
+
+          const { error: updateErr } = await supabase
+            .from("invoices")
+            .update({ file_ref: driveRef, file_kind: "gdrive" })
+            .eq("id", inserted.id);
+          if (updateErr) throw updateErr;
+
+          fileRecord = {
+            drive_file_id: driveUpload.drive_file_id,
+            web_view_link: driveUpload.webViewLink,
+            file_ref: driveRef,
+            mime_type: driveUpload.mimeType,
+            original_filename: driveUpload.name,
+          };
+
+          await fs.promises.unlink(req.file.path).catch(() => {});
         } catch (fileErr) {
-          console.error("Failed to insert file metadata", fileErr);
+          console.error("Drive upload failed", fileErr);
+          return res.status(500).json({ error: "Drive upload failed", details: fileErr.message });
         }
       }
+
       return res.json({
         success: true,
         status: "ok",
         message: "File uploaded",
         needs_review: needsReview,
-        file: {
-          originalName: req.file.originalname,
-          storedName: req.file.filename,
-          storedPath: req.file.path,
-          source: "Upload",
-        },
         invoice: inserted,
-        file_ref: fileRef ?? null,
-        file_record: storedFile,
+        file_ref: fileRecord?.file_ref || fileRef || null,
+        file_record: fileRecord,
       });
     } catch (err) {
       console.error("Upload insert error:", err);
@@ -1268,34 +1386,64 @@ app.post("/api/upload-receipt", requireAuthFlexible, upload.single("file"), asyn
       if (insertError) {
         return res.status(500).json({ error: "Upload failed to save receipt", details: insertError.message });
       }
-      let storedFile = null;
+      let fileRecord = null;
       if (inserted?.id) {
         try {
-          storedFile = await insertFile({
-            owner_type: "receipt",
-            owner_id: inserted.id,
-            file_ref: fileRef || null,
-            original_filename: req.file.originalname || null,
-            mime_type: req.file.mimetype || null,
-            file_size: req.file.size || null,
-            file_hash: fileHash,
+          const driveUpload = await uploadFileToDrive({
+            filePath: req.file.path,
+            mimeType: req.file.mimetype,
+            name: req.file.originalname,
           });
+
+          const nowUpdate = new Date().toISOString();
+          const driveRef = `gdrive:${driveUpload.drive_file_id}`;
+
+          const { error: fileErr } = await supabase
+            .from("files")
+            .upsert(
+              {
+                owner_type: "receipt",
+                owner_id: inserted.id,
+                drive_file_id: driveUpload.drive_file_id,
+                web_view_link: driveUpload.webViewLink,
+                file_ref: driveRef,
+                file_hash: fileHash,
+                original_filename: req.file.originalname,
+                mime_type: req.file.mimetype,
+                created_at: nowUpdate,
+                updated_at: nowUpdate,
+              },
+              { onConflict: "owner_type,owner_id" }
+            );
+          if (fileErr) throw fileErr;
+
+          const { error: updateErr } = await supabase
+            .from("invoices")
+            .update({ file_ref: driveRef, file_kind: "gdrive" })
+            .eq("id", inserted.id);
+          if (updateErr) throw updateErr;
+
+          fileRecord = {
+            drive_file_id: driveUpload.drive_file_id,
+            web_view_link: driveUpload.webViewLink,
+            file_ref: driveRef,
+            mime_type: driveUpload.mimeType,
+            original_filename: driveUpload.name,
+          };
+
+          await fs.promises.unlink(req.file.path).catch(() => {});
         } catch (fileErr) {
-          console.error("Failed to insert file metadata", fileErr);
+          console.error("Drive upload failed", fileErr);
+          return res.status(500).json({ error: "Drive upload failed", details: fileErr.message });
         }
       }
+
       return res.json({
         status: "ok",
         message: "Receipt uploaded",
-        file: {
-          originalName: req.file.originalname,
-          storedName: req.file.filename,
-          storedPath: req.file.path,
-          source: "Upload",
-        },
         invoice: inserted,
-        file_ref: fileRef ?? null,
-        file_record: storedFile,
+        file_ref: fileRecord?.file_ref || fileRef || null,
+        file_record: fileRecord,
       });
     } catch (err) {
       console.error("Receipt upload insert error:", err);
