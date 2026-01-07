@@ -875,7 +875,22 @@ app.post("/api/upload-invoice", requireAuthFlexible, upload.single("file"), asyn
 
     const uploadedBuffer = await fs.promises.readFile(req.file.path);
     const fileHash = crypto.createHash("sha256").update(uploadedBuffer).digest("hex");
-    const existing = await findFileByHash("invoice", fileHash);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) {
+      console.error("Supabase not configured for dedupe");
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+    const { data: existingRows, error: existingErr } = await supabase
+      .from("files")
+      .select("id, owner_id")
+      .eq("owner_type", "invoice")
+      .eq("file_hash", fileHash)
+      .limit(1);
+    if (existingErr) {
+      console.error("Supabase dedupe check failed", existingErr);
+      return res.status(500).json({ error: "Upload failed", details: existingErr.message });
+    }
+    const existing = existingRows && existingRows[0];
     if (existing) {
       await fs.promises.unlink(req.file.path).catch(() => {});
       return res.json({ success: true, duplicate: true, existingOwnerId: existing.owner_id, fileId: existing.id });
@@ -1206,43 +1221,84 @@ app.post("/api/upload-invoice", requireAuthFlexible, upload.single("file"), asyn
           const now = new Date().toISOString();
           const driveRef = `gdrive:${driveUpload.drive_file_id}`;
 
-          const { error: fileErr } = await supabase
-            .from("files")
-            .upsert(
-              {
-                owner_type: "invoice",
-                owner_id: inserted.id,
-                drive_file_id: driveUpload.drive_file_id,
-                web_view_link: driveUpload.webViewLink,
-                file_ref: driveRef,
-                file_hash: fileHash,
-                original_filename: req.file.originalname,
-                mime_type: req.file.mimetype,
-                created_at: now,
-                updated_at: now,
-              },
-              { onConflict: "owner_type,owner_id" }
-            );
-          if (fileErr) throw fileErr;
+          let existingFile = null;
+          if (fileHash) {
+            const { data, error } = await supabase
+              .from("files")
+              .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+              .eq("owner_type", "invoice")
+              .eq("file_hash", fileHash)
+              .limit(1)
+              .maybeSingle();
+            if (error) throw error;
+            existingFile = data;
+          }
+
+          if (!existingFile && driveUpload.drive_file_id) {
+            const { data, error } = await supabase
+              .from("files")
+              .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+              .eq("drive_file_id", driveUpload.drive_file_id)
+              .limit(1)
+              .maybeSingle();
+            if (error) throw error;
+            existingFile = data;
+          }
+
+          if (!existingFile) {
+            const { error: fileErr } = await supabase
+              .from("files")
+              .upsert(
+                {
+                  owner_type: "invoice",
+                  owner_id: inserted.id,
+                  drive_file_id: driveUpload.drive_file_id,
+                  web_view_link: driveUpload.webViewLink,
+                  file_ref: driveRef,
+                  file_hash: fileHash,
+                  original_filename: req.file.originalname,
+                  mime_type: req.file.mimetype,
+                  created_at: now,
+                  updated_at: now,
+                },
+                { onConflict: "owner_type,owner_id" }
+              );
+            if (fileErr) {
+              if (String(fileErr.message || "").toLowerCase().includes("duplicate")) {
+                return res.status(409).json({ error: "Duplicate file already captured", details: fileErr.message });
+              }
+              throw fileErr;
+            }
+            fileRecord = {
+              drive_file_id: driveUpload.drive_file_id,
+              web_view_link: driveUpload.webViewLink,
+              file_ref: driveRef,
+              mime_type: driveUpload.mimeType,
+              original_filename: driveUpload.name,
+            };
+          } else {
+            fileRecord = {
+              drive_file_id: existingFile.drive_file_id || driveUpload.drive_file_id,
+              web_view_link: existingFile.web_view_link || driveUpload.webViewLink,
+              file_ref: existingFile.file_ref || driveRef,
+              mime_type: existingFile.mime_type || driveUpload.mimeType,
+              original_filename: existingFile.original_filename || driveUpload.name,
+            };
+          }
 
           const { error: updateErr } = await supabase
             .from("invoices")
-            .update({ file_ref: driveRef, file_kind: "gdrive" })
+            .update({ file_ref: fileRecord.file_ref, file_kind: "gdrive" })
             .eq("id", inserted.id);
           if (updateErr) throw updateErr;
-
-          fileRecord = {
-            drive_file_id: driveUpload.drive_file_id,
-            web_view_link: driveUpload.webViewLink,
-            file_ref: driveRef,
-            mime_type: driveUpload.mimeType,
-            original_filename: driveUpload.name,
-          };
 
           await fs.promises.unlink(req.file.path).catch(() => {});
         } catch (fileErr) {
           console.error("Drive upload failed", fileErr);
-          return res.status(500).json({ error: "Drive upload failed", details: fileErr.message });
+          const duplicate = String(fileErr.message || "").toLowerCase().includes("duplicate");
+          return res
+            .status(duplicate ? 409 : 500)
+            .json({ error: duplicate ? "Duplicate file already captured" : "Drive upload failed", details: fileErr.message });
         }
       }
 
@@ -1282,8 +1338,24 @@ app.post("/api/upload-receipt", requireAuthFlexible, upload.single("file"), asyn
 
     const uploadedBuffer = await fs.promises.readFile(req.file.path);
     const fileHash = crypto.createHash("sha256").update(uploadedBuffer).digest("hex");
-    const existing = await findFileByHash("receipt", fileHash);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) {
+      console.error("Supabase not configured for dedupe");
+      return res.status(500).json({ error: "Upload failed", details: "Supabase not configured" });
+    }
+    const { data: existingRows, error: existingErr } = await supabase
+      .from("files")
+      .select("id, owner_id")
+      .eq("owner_type", "receipt")
+      .eq("file_hash", fileHash)
+      .limit(1);
+    if (existingErr) {
+      console.error("Supabase dedupe check failed", existingErr);
+      return res.status(500).json({ error: "Upload failed", details: existingErr.message });
+    }
+    const existing = existingRows && existingRows[0];
     if (existing) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
       return res.json({ duplicate: true, existingOwnerId: existing.owner_id, fileId: existing.id });
     }
 
@@ -1398,43 +1470,84 @@ app.post("/api/upload-receipt", requireAuthFlexible, upload.single("file"), asyn
           const nowUpdate = new Date().toISOString();
           const driveRef = `gdrive:${driveUpload.drive_file_id}`;
 
-          const { error: fileErr } = await supabase
-            .from("files")
-            .upsert(
-              {
-                owner_type: "receipt",
-                owner_id: inserted.id,
-                drive_file_id: driveUpload.drive_file_id,
-                web_view_link: driveUpload.webViewLink,
-                file_ref: driveRef,
-                file_hash: fileHash,
-                original_filename: req.file.originalname,
-                mime_type: req.file.mimetype,
-                created_at: nowUpdate,
-                updated_at: nowUpdate,
-              },
-              { onConflict: "owner_type,owner_id" }
-            );
-          if (fileErr) throw fileErr;
+          let existingFile = null;
+          if (fileHash) {
+            const { data, error } = await supabase
+              .from("files")
+              .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+              .eq("owner_type", "receipt")
+              .eq("file_hash", fileHash)
+              .limit(1)
+              .maybeSingle();
+            if (error) throw error;
+            existingFile = data;
+          }
+
+          if (!existingFile && driveUpload.drive_file_id) {
+            const { data, error } = await supabase
+              .from("files")
+              .select("id, drive_file_id, web_view_link, file_ref, mime_type, original_filename")
+              .eq("drive_file_id", driveUpload.drive_file_id)
+              .limit(1)
+              .maybeSingle();
+            if (error) throw error;
+            existingFile = data;
+          }
+
+          if (!existingFile) {
+            const { error: fileErr } = await supabase
+              .from("files")
+              .upsert(
+                {
+                  owner_type: "receipt",
+                  owner_id: inserted.id,
+                  drive_file_id: driveUpload.drive_file_id,
+                  web_view_link: driveUpload.webViewLink,
+                  file_ref: driveRef,
+                  file_hash: fileHash,
+                  original_filename: req.file.originalname,
+                  mime_type: req.file.mimetype,
+                  created_at: nowUpdate,
+                  updated_at: nowUpdate,
+                },
+                { onConflict: "owner_type,owner_id" }
+              );
+            if (fileErr) {
+              if (String(fileErr.message || "").toLowerCase().includes("duplicate")) {
+                return res.status(409).json({ error: "Duplicate file already captured", details: fileErr.message });
+              }
+              throw fileErr;
+            }
+            fileRecord = {
+              drive_file_id: driveUpload.drive_file_id,
+              web_view_link: driveUpload.webViewLink,
+              file_ref: driveRef,
+              mime_type: driveUpload.mimeType,
+              original_filename: driveUpload.name,
+            };
+          } else {
+            fileRecord = {
+              drive_file_id: existingFile.drive_file_id || driveUpload.drive_file_id,
+              web_view_link: existingFile.web_view_link || driveUpload.webViewLink,
+              file_ref: existingFile.file_ref || driveRef,
+              mime_type: existingFile.mime_type || driveUpload.mimeType,
+              original_filename: existingFile.original_filename || driveUpload.name,
+            };
+          }
 
           const { error: updateErr } = await supabase
             .from("invoices")
-            .update({ file_ref: driveRef, file_kind: "gdrive" })
+            .update({ file_ref: fileRecord.file_ref, file_kind: "gdrive" })
             .eq("id", inserted.id);
           if (updateErr) throw updateErr;
-
-          fileRecord = {
-            drive_file_id: driveUpload.drive_file_id,
-            web_view_link: driveUpload.webViewLink,
-            file_ref: driveRef,
-            mime_type: driveUpload.mimeType,
-            original_filename: driveUpload.name,
-          };
 
           await fs.promises.unlink(req.file.path).catch(() => {});
         } catch (fileErr) {
           console.error("Drive upload failed", fileErr);
-          return res.status(500).json({ error: "Drive upload failed", details: fileErr.message });
+          const duplicate = String(fileErr.message || "").toLowerCase().includes("duplicate");
+          return res
+            .status(duplicate ? 409 : 500)
+            .json({ error: duplicate ? "Duplicate file already captured" : "Drive upload failed", details: fileErr.message });
         }
       }
 
