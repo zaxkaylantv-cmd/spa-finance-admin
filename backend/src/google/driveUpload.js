@@ -63,4 +63,38 @@ const uploadFileToDrive = async ({ filePath, mimeType, name }) => {
   };
 };
 
-module.exports = { uploadFileToDrive };
+const { Readable } = require("stream");
+
+const uploadBufferToDrive = async ({ buffer, mimeType, name }) => {
+  const folderId = process.env.GOOGLE_DRIVE_DOCS_FOLDER_ID;
+  if (!folderId) {
+    throw new Error("GOOGLE_DRIVE_DOCS_FOLDER_ID missing");
+  }
+
+  const { drive } = await createDriveClient();
+  const bodyStream = Readable.from(buffer);
+  const requestBody = {
+    name,
+    parents: [folderId],
+  };
+  const media = {
+    mimeType,
+    body: bodyStream,
+  };
+
+  const res = await drive.files.create({
+    requestBody,
+    media,
+    fields: "id, webViewLink, mimeType, name",
+    supportsAllDrives: true,
+  });
+
+  return {
+    drive_file_id: res.data.id,
+    webViewLink: res.data.webViewLink,
+    mimeType: res.data.mimeType,
+    name: res.data.name,
+  };
+};
+
+module.exports = { uploadFileToDrive, uploadBufferToDrive };

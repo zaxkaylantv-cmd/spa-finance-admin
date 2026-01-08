@@ -48,9 +48,14 @@ const {
   getTokenStatus,
   consumeState,
 } = require("./google/driveAuth");
-const { uploadFileToDrive } = require("./google/driveUpload");
+const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
+const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
+const { processOneInvoiceEmail, getMailbox } = require("./email/processOnce");
+const { getIngestState } = require("./email/ingestState");
+const { runIngestCycle } = require("./email/ingestWorker");
 
 const PORT = process.env.PORT || 3002;
+const PROCESS_ONCE_TIMEOUT_MS = 180000;
 const app = express();
 
 app.use(cors());
@@ -166,6 +171,92 @@ app.get("/api/supabase-status", async (_req, res) => {
   }
 });
 
+const runProcessOnceWithTimeout = () =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const err = new Error("Email processing timed out");
+      err.code = "PROCESS_TIMEOUT";
+      reject(err);
+    }, PROCESS_ONCE_TIMEOUT_MS);
+    processOneInvoiceEmail()
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+
+const processOnceHandler = async (req, res) => {
+  const secret = req.get("x-email-ingest-secret") || "";
+  const expected = process.env.EMAIL_INGEST_ADMIN_SECRET || "";
+  if (!expected || secret !== expected) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  try {
+    const result = await runProcessOnceWithTimeout();
+    if (result?.not_enabled) {
+      return res.json(result);
+    }
+    if (Array.isArray(result?.errors) && result.errors.length) {
+      const isTimeout = result.errors.includes("IMAP timeout");
+      return res.status(isTimeout ? 504 : 500).json(result);
+    }
+    if (!result) {
+      return res.json({ processed: 0, skipped: 0, invoice_ids: [], errors: [] });
+    }
+    return res.json(result);
+  } catch (err) {
+    if (err?.code === "PROCESS_TIMEOUT" || err?.code === "ETIMEOUT") {
+      return res.status(504).json({ error: err.message || "Email processing timed out" });
+    }
+    console.error("process-once failed", err);
+    return res.status(500).json({ error: "Email process failed", details: err.message });
+  }
+};
+
+startEmailDiscoveryPoller();
+
+const maybeStartEmailWorker = () => {
+  const enabledFlag = (process.env.EMAIL_INGEST_ENABLED || "0").toLowerCase();
+  const mode = (process.env.EMAIL_INGEST_MODE || "discover").toLowerCase();
+  const workerFlag = (process.env.EMAIL_INGEST_WORKER || "0").toLowerCase();
+  const pollSecondsRaw = Number(process.env.EMAIL_INGEST_POLL_SECONDS || 120);
+  const pollSeconds = Number.isFinite(pollSecondsRaw) && pollSecondsRaw > 0 ? pollSecondsRaw : 120;
+  if (!(enabledFlag === "1" || enabledFlag === "true") || mode !== "process" || !["1", "true"].includes(workerFlag)) {
+    return;
+  }
+  const mailbox = getMailbox();
+  const supabaseAdmin = getSupabaseAdminClient();
+  if (!supabaseAdmin) {
+    console.error("[email][worker] skipped: supabase not configured");
+    return;
+  }
+  console.log(`[email][worker] enabled pollSeconds=${pollSeconds}`);
+  let running = false;
+  setInterval(async () => {
+    if (running) return;
+    running = true;
+    const start = Date.now();
+    try {
+      console.log(`[email][worker] cycle start mailbox=${mailbox}`);
+      const res = await runIngestCycle({ supabaseAdmin, mailbox });
+      const dur = Date.now() - start;
+      console.log(`[email][worker] cycle end mailbox=${mailbox} duration_ms=${dur} status=${res?.status || "unknown"}`);
+    } catch (err) {
+      const dur = Date.now() - start;
+      console.error(`[email][worker] cycle error mailbox=${mailbox} duration_ms=${dur} msg=${err.message || err}`);
+    } finally {
+      running = false;
+    }
+  }, pollSeconds * 1000);
+};
+maybeStartEmailWorker();
+
+app.post("/api/email/process-once", processOnceHandler);
+
 app.use("/api", requireAuthFlexible);
 
 app.get("/api/google/drive/status", async (_req, res) => {
@@ -211,6 +302,43 @@ app.get("/api/google/oauth/callback", async (req, res) => {
 
 app.get("/api/whoami", requireAuthFlexible, (req, res) => {
   res.json({ ok: true, user: req.user || null });
+});
+
+app.get("/api/email/status", requireAuthFlexible, async (_req, res) => {
+  const supabaseAdmin = getSupabaseAdminClient();
+  const mailbox = getMailbox();
+  let ingest_state = null;
+  if (supabaseAdmin) {
+    const ingest = await getIngestState({ supabaseAdmin, mailbox });
+    ingest_state = ingest?.ok ? ingest.data : ingest;
+  }
+  res.json({ ...getEmailDiscoveryStatus(), ingest_state });
+});
+
+app.post("/api/email/process-once", processOnceHandler);
+
+app.post("/api/email/run-cycle", async (req, res) => {
+  const allowManual = (process.env.EMAIL_INGEST_ALLOW_MANUAL || "0").toLowerCase();
+  if (allowManual !== "1") {
+    return res.status(404).json({ ok: false, error: "Manual ingest disabled" });
+  }
+  const secret = req.get("x-email-ingest-secret") || "";
+  const expected = process.env.EMAIL_INGEST_ADMIN_SECRET || "";
+  if (!expected || secret !== expected) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const supabaseAdmin = getSupabaseAdminClient();
+  const mailbox = getMailbox();
+  try {
+    const result = await runIngestCycle({ supabaseAdmin, mailbox });
+    if (!result?.ok) {
+      return res.status(500).json({ ok: false, error: result?.error || "Ingest cycle failed" });
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("run-cycle failed", err);
+    return res.status(500).json({ ok: false, error: err.message || String(err) });
+  }
 });
 
 app.get("/api/supabase-invoices", async (req, res) => {
