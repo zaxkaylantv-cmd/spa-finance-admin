@@ -17,6 +17,37 @@ const formatInvoiceDate = (value: string | null | undefined) => {
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
+const getDocKind = (doc: any): "invoice" | "receipt" | "other" => {
+  const raw =
+    doc?.doc_type ||
+    doc?.docType ||
+    doc?.doc_kind ||
+    doc?.docKind ||
+    doc?.kind ||
+    doc?.type ||
+    doc?.owner_type ||
+    doc?.ownerType ||
+    "";
+  const lower = String(raw || "").toLowerCase();
+  if (lower.includes("receipt")) return "receipt";
+  if (lower.includes("invoice")) return "invoice";
+  return "other";
+};
+const formatRelativeTime = (value: string | null | undefined) => {
+  if (!value) return "—";
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return "—";
+  const diff = Date.now() - ts;
+  const abs = Math.abs(diff);
+  const minutes = Math.floor(abs / 60000);
+  const hours = Math.floor(abs / 3600000);
+  const days = Math.floor(abs / 86400000);
+  const suffix = diff >= 0 ? "ago" : "from now";
+  if (abs < 60000) return diff >= 0 ? "just now" : "soon";
+  if (minutes < 60) return `${minutes}m ${suffix}`;
+  if (hours < 24) return `${hours}h ${suffix}`;
+  return `${days}d ${suffix}`;
+};
 
 const getIssueDate = (invoice: Invoice): string | undefined => invoice.issue_date ?? invoice.issueDate;
 const getDueDate = (invoice: Invoice): string | undefined => invoice.due_date ?? invoice.dueDate;
@@ -110,10 +141,31 @@ export default function DocumentsTab({
   const now = useMemo(() => new Date(), []);
 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [emailConnected, setEmailConnected] = useState(true);
-  const [inboxEmail] = useState("invoices@thespabykaajal.com");
+  const [emailConnected, setEmailConnected] = useState<boolean>(true);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [emailStatusData, setEmailStatusData] = useState<{
+    data: any | null;
+    loading: boolean;
+    error: string | null;
+    lastUpdated: number | null;
+  }>({ data: null, loading: true, error: null, lastUpdated: null });
+  const [showRawStatus, setShowRawStatus] = useState(false);
+  const [currentDocTab, setCurrentDocTab] = useState<"invoice" | "receipt">("invoice");
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<
+    {
+      id: string;
+      kind: "invoice" | "receipt";
+      filename: string;
+      startedAt: number;
+      status: "uploading" | "done" | "failed";
+      message?: string;
+      invoiceId?: string | number | null;
+      receiptId?: string | number | null;
+      driveLink?: string | null;
+    }[]
+  >([]);
   const [isEditing, setIsEditing] = useState(false);
   const [fileRecords, setFileRecords] = useState<any[]>([]);
   const [fileMessage, setFileMessage] = useState<string | null>(null);
@@ -125,7 +177,6 @@ export default function DocumentsTab({
   const [autoApprovalStatus, setAutoApprovalStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraftStatus, setEmailDraftStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
-  const [inboxStatus, setInboxStatus] = useState<string | null>(null);
   const [notesValue, setNotesValue] = useState("");
   const [notesSavedValue, setNotesSavedValue] = useState("");
   const [editValues, setEditValues] = useState({
@@ -183,7 +234,9 @@ export default function DocumentsTab({
         }),
     [invoices, filters],
   );
-
+  const invoiceRows = useMemo(() => filteredDocuments.filter((doc) => getDocKind(doc) === "invoice"), [filteredDocuments]);
+  const receiptRows = useMemo(() => filteredDocuments.filter((doc) => getDocKind(doc) === "receipt"), [filteredDocuments]);
+  const tableRows = currentDocTab === "invoice" ? invoiceRows : receiptRows;
   const selectedDoc = useMemo(
     () => invoices.find((doc) => doc.id === selectedDocId) ?? null,
     [invoices, selectedDocId],
@@ -268,6 +321,42 @@ export default function DocumentsTab({
       }
     };
     void loadAiStatus();
+  }, [appKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const loadEmailStatus = async () => {
+      try {
+        const res = await tryFetchApi("/api/email/status", {
+          headers: {
+            ...(appKey ? { "X-APP-KEY": appKey } : {}),
+          },
+        });
+        if (!res.ok) {
+          throw new Error(`Email status ${res.status}`);
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        setEmailStatusData({ data, loading: false, error: null, lastUpdated: Date.now() });
+        if (typeof data.enabled !== "undefined") {
+          setEmailConnected(Boolean(data.enabled));
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setEmailStatusData((prev) => ({
+          ...prev,
+          loading: false,
+          error: err?.message || "Failed to load email status",
+        }));
+      }
+    };
+    void loadEmailStatus();
+    timer = setInterval(loadEmailStatus, 15000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
   }, [appKey]);
 
   const supplierHistory = useMemo(() => {
@@ -471,6 +560,13 @@ export default function DocumentsTab({
 
   const handleFileUpload = async (file: File) => {
     if (!file) return;
+    const queueId = `inv-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setUploadQueue((prev) =>
+      [{ id: queueId, kind: "invoice" as const, filename: file.name, startedAt: Date.now(), status: "uploading" as const }, ...prev].slice(
+        0,
+        5
+      )
+    );
     const mime = (file.type || "").toLowerCase();
     const name = (file.name || "").toLowerCase();
     const isPdf = mime === "application/pdf" || mime.includes("pdf") || name.endsWith(".pdf");
@@ -478,6 +574,9 @@ export default function DocumentsTab({
     if (!isPdf && !isImage) {
       setUploadStatus("error");
       setUploadMessage("Unsupported file type. Please upload a PDF or image invoice.");
+      setUploadQueue((prev) =>
+        prev.map((u) => (u.id === queueId ? { ...u, status: "failed" as const, message: "Unsupported type" } : u))
+      );
       return;
     }
 
@@ -515,6 +614,7 @@ export default function DocumentsTab({
         console.error("Upload error at", url, err);
         setUploadStatus("error");
         setUploadMessage("Upload failed. Please try again.");
+        setUploadQueue((prev) => prev.map((u) => (u.id === queueId ? { ...u, status: "failed" as const, message: "Network error" } : u)));
         return;
       }
 
@@ -522,6 +622,9 @@ export default function DocumentsTab({
       if (data?.duplicate) {
         setUploadStatus("success");
         setUploadMessage("Already uploaded (duplicate) — no new record created.");
+        setUploadQueue((prev) =>
+        prev.map((u) => (u.id === queueId ? { ...u, status: "done" as const, message: "Duplicate detected" } : u))
+      );
         return;
       }
       setUploadStatus("success");
@@ -533,15 +636,36 @@ export default function DocumentsTab({
       if (data?.invoice && onInvoiceCreatedFromUpload) {
         onInvoiceCreatedFromUpload(data.invoice as Invoice);
       }
+      setUploadQueue((prev) =>
+        prev.map((u) =>
+          u.id === queueId
+            ? {
+                ...u,
+                status: "done" as const,
+                message: data?.needs_review ? "Needs review" : "Uploaded",
+                invoiceId: data?.invoice?.id ?? null,
+                driveLink: data?.invoice?.file_ref ?? null,
+              }
+            : u
+        )
+      );
     } catch (error) {
       console.error("Upload error", error);
       setUploadStatus("error");
       setUploadMessage("Upload failed. Please check your connection and try again.");
+      setUploadQueue((prev) => prev.map((u) => (u.id === queueId ? { ...u, status: "failed" as const, message: "Upload failed" } : u)));
     }
   };
 
   const handleReceiptUpload = async (file: File) => {
     if (!file) return;
+    const queueId = `rec-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setUploadQueue((prev) =>
+      [
+        { id: queueId, kind: "receipt" as const, filename: file.name, startedAt: Date.now(), status: "uploading" as const },
+        ...prev,
+      ].slice(0, 5)
+    );
     setUploadStatus("uploading");
     setUploadMessage("Uploading receipt…");
     try {
@@ -571,6 +695,7 @@ export default function DocumentsTab({
         console.error("Receipt upload error at", url, err);
         setUploadStatus("error");
         setUploadMessage("Receipt upload failed. Please try again.");
+        setUploadQueue((prev) => prev.map((u) => (u.id === queueId ? { ...u, status: "failed" as const, message: "Network error" } : u)));
         return;
       }
 
@@ -578,6 +703,9 @@ export default function DocumentsTab({
       if (data?.duplicate) {
         setUploadStatus("success");
         setUploadMessage("Already uploaded (duplicate) — no new record created.");
+        setUploadQueue((prev) =>
+        prev.map((u) => (u.id === queueId ? { ...u, status: "done" as const, message: "Duplicate detected" } : u))
+      );
         return;
       }
       setUploadStatus("success");
@@ -585,10 +713,24 @@ export default function DocumentsTab({
       if (data?.invoice && onInvoiceCreatedFromUpload) {
         onInvoiceCreatedFromUpload(data.invoice as Invoice);
       }
+      setUploadQueue((prev) =>
+        prev.map((u) =>
+          u.id === queueId
+            ? {
+                ...u,
+                status: "done" as const,
+                message: "Uploaded",
+                receiptId: data?.invoice?.id ?? null,
+                driveLink: data?.invoice?.file_ref ?? null,
+              }
+            : u
+        )
+      );
     } catch (error) {
       console.error("Receipt upload error", error);
       setUploadStatus("error");
       setUploadMessage("Receipt upload failed. Please check your connection and try again.");
+      setUploadQueue((prev) => prev.map((u) => (u.id === queueId ? { ...u, status: "failed" as const, message: "Upload failed" } : u)));
     }
   };
 
@@ -610,9 +752,14 @@ export default function DocumentsTab({
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
     if (file) {
-      void handleFileUpload(file);
+      if (currentDocTab === "receipt") {
+        void handleReceiptUpload(file);
+      } else {
+        void handleFileUpload(file);
+      }
     }
   };
 
@@ -624,19 +771,41 @@ export default function DocumentsTab({
           <h1 className="text-3xl font-bold text-slate-900">Documents</h1>
           <p className="text-slate-500">Keep every invoice in one place. AI reads them for you and keeps cashflow current.</p>
         </div>
-        <span className="inline-flex items-center rounded-full border border-cyan-100 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm">
-          {dateRangeLabel}
-        </span>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 text-sm font-semibold shadow-sm">
+            {(["invoice", "receipt"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setCurrentDocTab(tab)}
+                className={`rounded-full px-3 py-1.5 transition ${
+                  currentDocTab === tab ? "bg-slate-900 text-white shadow" : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                {tab === "invoice" ? "Invoices" : "Receipts"}
+              </button>
+            ))}
+          </div>
+          <span className="inline-flex items-center rounded-full border border-cyan-100 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm">
+            {dateRangeLabel}
+          </span>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <div
-            className="flex h-full flex-col rounded-2xl border border-dashed border-cyan-200 bg-slate-50/80 p-6 shadow-sm"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-          >
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <div className="h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-md space-y-4">
+            <div
+              className={`flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed bg-slate-50 p-6 text-center transition ${
+                isDragging ? "border-cyan-400 bg-cyan-50 shadow-lg" : "border-cyan-200"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+            >
               <input
                 ref={fileInputRef}
                 type="file"
@@ -655,94 +824,260 @@ export default function DocumentsTab({
                 <UploadCloud className="h-6 w-6" />
               </div>
               <div className="space-y-1">
-                <p className="text-lg font-semibold text-slate-900">Drop invoices here or click to upload</p>
+                <p className="text-lg font-semibold text-slate-900">
+                  {isDragging
+                    ? "Drop to upload"
+                    : currentDocTab === "invoice"
+                    ? "Drop invoices here or click to upload"
+                    : "Drop receipts here or click to upload"}
+                </p>
                 <p className="text-sm text-slate-500">
-                  Upload PDF invoices or images (JPG, PNG, WEBP). Images are saved for manual review; PDFs keep the current AI extraction.
+                  {currentDocTab === "invoice"
+                    ? "PDF recommended for best extraction. Images are saved for manual review."
+                    : "JPG/PNG/WEBP supported; stored for manual review."}
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-3">
                 <button
                   className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-900 shadow"
                   style={{ backgroundColor: "var(--brand-accent-strong)" }}
-                  onClick={handleFileSelect}
+                  onClick={currentDocTab === "invoice" ? handleFileSelect : handleReceiptFileSelect}
                   type="button"
                 >
-                  Click to upload
+                  {currentDocTab === "invoice" ? "Upload invoice (PDF)" : "Upload receipt (photo)"}
                 </button>
                 <button
                   className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-[var(--brand-accent)]"
-                  onClick={handleFileSelect}
+                  onClick={currentDocTab === "invoice" ? handleFileSelect : handleReceiptFileSelect}
                   type="button"
                 >
                   Browse folder
-                </button>
-                <button
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
-                  onClick={handleReceiptFileSelect}
-                  type="button"
-                >
-                  Upload receipt
                 </button>
               </div>
               {uploadStatus !== "idle" && uploadMessage && (
                 <p className="text-sm text-slate-600">{uploadMessage}</p>
               )}
             </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+              <span className="rounded-full bg-slate-100 px-3 py-1">Upload</span>
+              <span className="text-slate-400">→</span>
+              <span className="rounded-full bg-slate-100 px-3 py-1">AI reads</span>
+              <span className="text-slate-400">→</span>
+              <span className="rounded-full bg-slate-100 px-3 py-1">Appears in list</span>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 shadow-inner">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                <span>Recent uploads</span>
+                <span>{currentDocTab === "invoice" ? "Invoices" : "Receipts"}</span>
+              </div>
+              <div className="mt-2 space-y-2">
+                {uploadQueue.filter((u) => u.kind === currentDocTab).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-6 text-center">
+                    <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500">•</div>
+                    <p className="text-sm font-semibold text-slate-900">No uploads yet</p>
+                    <p className="text-xs text-slate-500">
+                      {currentDocTab === "invoice" ? "Upload a PDF invoice." : "Upload a receipt photo."}
+                    </p>
+                  </div>
+                ) : (
+                  uploadQueue
+                    .filter((u) => u.kind === currentDocTab)
+                    .slice(0, 5)
+                    .map((u) => {
+                      const statusClass =
+                        u.status === "uploading"
+                          ? "bg-cyan-50 text-cyan-700 border-cyan-100"
+                          : u.status === "done"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                          : "bg-rose-50 text-rose-700 border-rose-100";
+                      const statusLabel = u.status === "uploading" ? "Uploading" : u.status === "done" ? "Saved" : "Failed";
+                      return (
+                        <div
+                          key={u.id}
+                          className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm"
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-slate-900">{u.filename}</span>
+                            <span className="text-slate-500">{u.message || statusLabel}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}>
+                              {statusLabel}
+                            </span>
+                            {u.driveLink && (
+                              <a className="text-cyan-700 underline" href={u.driveLink} target="_blank" rel="noreferrer">
+                                Open
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
           </div>
         </div>
         <div>
           <div className="h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-md space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-lg font-semibold text-slate-900">Invoice email inbox</p>
-                <p className="text-sm text-slate-500">Keep invoices flowing from your inbox automatically.</p>
+            {emailStatusData.loading && !emailStatusData.data ? (
+              <div className="space-y-3">
+                <div className="h-6 w-40 animate-pulse rounded bg-slate-100" />
+                <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
+                <div className="h-4 w-3/4 animate-pulse rounded bg-slate-100" />
               </div>
-              <span
-                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                  emailConnected ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-rose-100 bg-rose-50 text-rose-700"
-                }`}
-              >
-                <span className="mr-1 h-2 w-2 rounded-full bg-current opacity-80" />
-                {emailConnected ? "Connected" : "Not connected"}
-              </span>
-            </div>
-
-            <label className="space-y-1 text-sm">
-              <span className="text-slate-700">Inbox email</span>
-              <input
-                className="w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700"
-                value={inboxEmail}
-                readOnly
-                placeholder="invoices@thespabykaajal.com"
-              />
-            </label>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-[var(--brand-accent)]"
-                onClick={() => {
-                  setEmailConnected((prev) => {
-                    const next = !prev;
-                    setInboxStatus(next ? "Inbox connected" : "Inbox disconnected");
-                    return next;
-                  });
-                }}
-                type="button"
-              >
-                {emailConnected ? "Disconnect inbox" : "Reconnect inbox"}
-              </button>
-            </div>
-            {inboxStatus && <p className="text-xs text-slate-600">{inboxStatus}</p>}
-
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Mail className="h-4 w-4 text-slate-600" />
-                <span className="font-medium text-slate-800">Email capture status</span>
-              </div>
-              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                Active
-              </span>
-            </div>
+            ) : (
+              <>
+                {(() => {
+                  const statusData = emailStatusData.data || {};
+                  const ingestState = statusData?.ingest_state || {};
+                  const nextRetry = ingestState?.next_retry_at ? new Date(ingestState.next_retry_at) : null;
+                  const inBackoff = nextRetry ? nextRetry.getTime() > Date.now() : false;
+                  const enabled =
+                    typeof statusData?.enabled !== "undefined" ? Boolean(statusData.enabled) : Boolean(emailConnected);
+                  const variant = emailStatusData.error
+                    ? "error"
+                    : enabled
+                    ? inBackoff
+                      ? "backoff"
+                      : "active"
+                    : "offline";
+                  const dotClass =
+                    variant === "active"
+                      ? "bg-emerald-500"
+                      : variant === "backoff"
+                      ? "bg-amber-500"
+                      : "bg-rose-500";
+                  const label =
+                    variant === "active" ? "Active" : variant === "backoff" ? "Backoff" : variant === "offline" ? "Offline" : "Offline";
+                  const lastRun = statusData?.last_run_at || ingestState?.updated_at || null;
+                  const nextLabel = nextRetry
+                    ? `Retry ${formatRelativeTime(nextRetry.toISOString())}`
+                    : `Every ${statusData?.pollSeconds || 2} minutes`;
+                  const lastError = ingestState?.last_error || statusData?.last_error || null;
+                  const sample = Array.isArray(statusData?.sample_messages) ? statusData.sample_messages.slice(-3).reverse() : [];
+                  const attempts = ingestState?.attempts || 0;
+                  const lastUid = ingestState?.last_uid || null;
+                  const updatedAt = emailStatusData.lastUpdated
+                    ? formatRelativeTime(new Date(emailStatusData.lastUpdated).toISOString())
+                    : formatRelativeTime(ingestState?.updated_at || null);
+                  return (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-semibold text-slate-900">Email ingestion</p>
+                          <p className="text-sm text-slate-500">Live state from the IonOS inbox.</p>
+                        </div>
+                        <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm">
+                          <span className={`h-2 w-2 rounded-full ${dotClass} shadow-[0_0_0_6px_rgba(0,0,0,0.04)]`} />
+                          {label}
+                        </span>
+                      </div>
+                      {emailStatusData.error && (
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                          Last update failed: {emailStatusData.error}
+                        </div>
+                      )}
+                      <div className="grid gap-3 text-sm md:grid-cols-2">
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <p className="text-xs uppercase text-slate-500">Mailbox</p>
+                          <p className="text-sm font-semibold text-slate-900">{statusData?.mailbox || "Invoices"}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <p className="text-xs uppercase text-slate-500">IMAP</p>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {statusData?.imap_host || "—"}:{statusData?.imap_port || "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <p className="text-xs uppercase text-slate-500">Last run</p>
+                          <p className="text-sm font-semibold text-slate-900">{formatRelativeTime(lastRun)}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <p className="text-xs uppercase text-slate-500">{nextRetry ? "Next retry" : "Next check"}</p>
+                          <p className="text-sm font-semibold text-slate-900">{nextLabel}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <p className="text-xs uppercase text-slate-500">Attempts</p>
+                          <p className="text-sm font-semibold text-slate-900">{attempts > 0 ? attempts : "0"}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2">
+                          <p className="text-xs uppercase text-slate-500">Last UID</p>
+                          <p className="text-sm font-semibold text-slate-900">{lastUid ?? "—"}</p>
+                        </div>
+                      </div>
+                      {lastError && (
+                        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+                          Latest issue: {lastError}
+                        </div>
+                      )}
+                      <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-slate-800">Recently seen</p>
+                          <span className="text-xs text-slate-500">Updated {updatedAt}</span>
+                        </div>
+                        {sample.length ? (
+                          <div className="space-y-2">
+                            {sample.map((msg: any, idx: number) => (
+                              <div key={`${msg.message_id || idx}`} className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2 text-xs shadow-sm">
+                                <div className="flex flex-col">
+                                  <span className="font-semibold text-slate-900 line-clamp-1">{msg.subject || "No subject"}</span>
+                                  <span className="text-slate-500">
+                                    {msg.from || msg.from_address || "Unknown sender"} ·{" "}
+                                    {msg.date ? formatRelativeTime(msg.date) : "unknown"}
+                                  </span>
+                                </div>
+                                <div className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                                  {msg.attachments?.length ? `${msg.attachments.length} attachments` : "No attachments"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-500">No recent messages sampled.</p>
+                        )}
+                      </div>
+                      <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-slate-500" />
+                            <span className="font-semibold text-slate-800">Diagnostics</span>
+                          </div>
+                          <button
+                            className="text-xs font-semibold text-slate-600 underline underline-offset-4"
+                            type="button"
+                            onClick={() => setShowRawStatus((prev) => !prev)}
+                          >
+                            {showRawStatus ? "Hide JSON" : "Show raw JSON"}
+                          </button>
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-3">
+                          <div className="rounded-lg bg-white/80 px-3 py-2 shadow-inner">
+                            <p className="text-[11px] uppercase text-slate-500">Unseen</p>
+                            <p className="text-sm font-semibold text-slate-900">{statusData?.unseen_count ?? "—"}</p>
+                          </div>
+                          <div className="rounded-lg bg-white/80 px-3 py-2 shadow-inner">
+                            <p className="text-[11px] uppercase text-slate-500">Processed 24h</p>
+                            <p className="text-sm font-semibold text-slate-900">{statusData?.processed_count_24h ?? "—"}</p>
+                          </div>
+                          <div className="rounded-lg bg-white/80 px-3 py-2 shadow-inner">
+                            <p className="text-[11px] uppercase text-slate-500">Next retry</p>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {nextRetry ? formatRelativeTime(nextRetry.toISOString()) : "Scheduled"}
+                            </p>
+                          </div>
+                        </div>
+                        {showRawStatus && (
+                          <pre className="max-h-64 overflow-auto rounded-lg bg-slate-900 px-3 py-2 text-[11px] text-emerald-100">
+                            {JSON.stringify(emailStatusData.data || {}, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -817,59 +1152,73 @@ export default function DocumentsTab({
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="min-w-full divide-y divide-slate-100 text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  {["Date", "Type", "Supplier", "Invoice #", "Amount", "Due date", "Status", "Category", "Source", "Actions"].map((col) => (
-                    <th key={col} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredDocuments.map((doc) => {
-                  const computedStatus = computeInvoiceStatus(doc);
-                  const displayStatus = (doc.status as InvoiceStatus) || computedStatus;
-                  const statusClass = statusStyles[displayStatus] || "bg-slate-100 text-slate-700 border-slate-200";
-                  const docType = (doc as any).doc_type || (doc as any).docType || "Invoice";
-                  const displayInvoiceNumber = doc.invoiceNumber || (doc as any).invoice_number || "—";
-                  return (
-                    <tr key={doc.id} className="hover:bg-slate-50/70">
-                      <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getIssueDate(doc))}</td>
-                      <td className="px-3 py-3">
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold bg-white border-slate-200 text-slate-700">
-                          {docType}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 font-semibold text-slate-900">{doc.supplier}</td>
-                      <td className="px-3 py-3 text-slate-600">{displayInvoiceNumber}</td>
-                      <td className="px-3 py-3 font-semibold text-slate-900">{formatCurrency(doc.amount)}</td>
-                      <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getDueDate(doc))}</td>
-                      <td className="px-3 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}
-                        >
-                          {displayStatus}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-slate-600">{doc.category}</td>
-                      <td className="px-3 py-3">
-                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceStyles[doc.source]}`}>
-                          {doc.source}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/60">
+            {tableRows.length === 0 ? (
+              <div className="flex min-h-[160px] flex-col items-center justify-center px-4 py-6 text-center">
+                <p className="text-sm font-semibold text-slate-900">
+                  {currentDocTab === "receipt" ? "No receipts yet." : "No invoices yet."}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {currentDocTab === "receipt"
+                    ? "Upload a receipt photo to get started."
+                    : "Upload an invoice PDF or send it to the inbox."}
+                </p>
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-slate-100 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {["Date", "Type", "Supplier", "Invoice #", "Amount", "Due date", "Status", "Category", "Source", "Actions"].map((col) => (
+                      <th key={col} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tableRows.map((doc) => {
+                    const computedStatus = computeInvoiceStatus(doc);
+                    const displayStatus = (doc.status as InvoiceStatus) || computedStatus;
+                    const statusClass = statusStyles[displayStatus] || "bg-slate-100 text-slate-700 border-slate-200";
+                    const docKind = getDocKind(doc);
+                    const docType = docKind === "invoice" ? "Invoice" : docKind === "receipt" ? "Receipt" : "Document";
+                    const displayInvoiceNumber = doc.invoiceNumber || (doc as any).invoice_number || "—";
+                    return (
+                      <tr key={doc.id} className="hover:bg-slate-50/70">
+                        <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getIssueDate(doc))}</td>
+                        <td className="px-3 py-3">
+                          <span className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold bg-white border-slate-200 text-slate-700">
+                            {docType}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 font-semibold text-slate-900">{doc.supplier}</td>
+                        <td className="px-3 py-3 text-slate-600">{displayInvoiceNumber}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-900">{formatCurrency(doc.amount)}</td>
+                        <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getDueDate(doc))}</td>
+                        <td className="px-3 py-3">
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}
+                          >
+                            {displayStatus}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-slate-600">{doc.category}</td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceStyles[doc.source]}`}>
+                            {doc.source}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>
