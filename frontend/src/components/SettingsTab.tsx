@@ -18,6 +18,8 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
   const [reminderLeadDays, setReminderLeadDays] = useState<1 | 3 | 7>(3);
   const [reminderRecipient, setReminderRecipient] = useState("");
   const [reminderMessage, setReminderMessage] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
@@ -83,6 +85,35 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
       recipient: next.recipient ?? reminderRecipient,
     };
     window.localStorage.setItem("spa_finance_reminders_v1", JSON.stringify(payload));
+  };
+
+  const handleExportCsv = async () => {
+    if (typeof window === "undefined") return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      const res = await tryFetchApi("/api/export/csv");
+      if (!res.ok) {
+        throw new Error(`Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = match?.[1] || "spa-finance-export.csv";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export failed", err);
+      setExportError("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -244,9 +275,14 @@ export default function SettingsTab({ appKey, onAppKeyChange }: Props) {
           <p className="text-sm text-slate-600">
             Invoices and extracted data stay on this server. Delete items in Documents anytime.
           </p>
-          <button className="w-fit rounded-lg border border-[color:var(--spa-border)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--spa-accent)] shadow-sm hover:bg-[color:var(--spa-wash)]">
-            Export data as CSV
+          <button
+            className="w-fit rounded-lg border border-[color:var(--spa-border)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--spa-accent)] shadow-sm hover:bg-[color:var(--spa-wash)] disabled:opacity-60"
+            onClick={() => void handleExportCsv()}
+            disabled={exporting}
+          >
+            {exporting ? "Exporting…" : "Export data as CSV"}
           </button>
+          {exportError && <p className="text-sm text-rose-600">{exportError}</p>}
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 lg:col-span-3">
