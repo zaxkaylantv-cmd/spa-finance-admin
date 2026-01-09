@@ -47,6 +47,8 @@ const shouldProcess = () => {
 };
 
 const hashBuffer = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+const buildIngestKey = ({ mailbox, messageId, attachmentIndex }) =>
+  crypto.createHash("sha256").update(`${mailbox}|${messageId}|${attachmentIndex}`).digest("hex");
 const withTimeout = (promise, ms, label) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -198,6 +200,7 @@ const processOneInvoiceEmail = async () => {
         let driveUpload = null;
         let file_hash = null;
         const msgId = parsed.messageId || "";
+        const ingestKey = buildIngestKey({ mailbox, messageId: msgId, attachmentIndex });
         try {
           file_hash = hashBuffer(att.content);
           const { data: existingProcessed, error: existingErr } = await supabase
@@ -210,6 +213,31 @@ const processOneInvoiceEmail = async () => {
           if (existingErr) throw existingErr;
           if (existingProcessed && existingProcessed.length) {
             result.skipped += 1;
+            attachmentIndex += 1;
+            continue;
+          }
+          const { data: existingInvoiceByIngest, error: ingestLookupErr } = await supabase
+            .from("invoices")
+            .select("id, file_ref")
+            .eq("ingest_key", ingestKey)
+            .limit(1);
+          if (ingestLookupErr) throw ingestLookupErr;
+          if (existingInvoiceByIngest && existingInvoiceByIngest.length) {
+            const existing = existingInvoiceByIngest[0];
+            await supabase.from("processed_emails").insert({
+              mailbox,
+              imap_uid: uid,
+              message_id: msgId,
+              attachment_index: attachmentIndex,
+              file_hash,
+              drive_file_id: null,
+              invoice_id: existing.id,
+              status: "duplicate",
+              error: null,
+            });
+            result.skipped += 1;
+            result.invoice_ids.push(existing.id);
+            console.log(`[email][batch] uid=${uid} skip_reason=duplicate_ingest_key invoice_id=${existing.id}`);
             attachmentIndex += 1;
             continue;
           }
@@ -262,6 +290,7 @@ const processOneInvoiceEmail = async () => {
               notes: `From: ${parsed.from?.text || ""}; Subject: ${parsed.subject || ""}`,
               created_at: now,
               updated_at: now,
+              ingest_key: ingestKey,
             })
             .select("*")
             .single();
@@ -308,6 +337,12 @@ const processOneInvoiceEmail = async () => {
         } catch (err) {
           if (err?.code === "23505") {
             try {
+              const { data: ingestExisting } = await supabase
+                .from("invoices")
+                .select("id")
+                .eq("ingest_key", ingestKey)
+                .limit(1);
+              const ingestExistingInvoice = ingestExisting && ingestExisting.length ? ingestExisting[0] : null;
               const { data: dupExisting } = await supabase
                 .from("files")
                 .select("owner_id, drive_file_id")
@@ -317,6 +352,8 @@ const processOneInvoiceEmail = async () => {
               const existing = dupExisting && dupExisting.length ? dupExisting[0] : null;
               if (existing) {
                 result.invoice_ids.push(existing.owner_id);
+              } else if (ingestExistingInvoice?.id) {
+                result.invoice_ids.push(ingestExistingInvoice.id);
               } else if (invoice?.id) {
                 result.invoice_ids.push(invoice.id);
               }
@@ -327,10 +364,13 @@ const processOneInvoiceEmail = async () => {
                 attachment_index: attachmentIndex,
                 file_hash,
                 drive_file_id: existing?.drive_file_id || driveUpload?.drive_file_id || null,
-                invoice_id: existing?.owner_id || invoice?.id || null,
+                invoice_id: existing?.owner_id || ingestExistingInvoice?.id || invoice?.id || null,
                 status: "duplicate",
                 error: null,
               });
+              if (ingestExistingInvoice?.id) {
+                console.log(`[email][batch] uid=${uid} skip_reason=duplicate_ingest_key invoice_id=${ingestExistingInvoice.id}`);
+              }
             } catch (_) {
               /* noop */
             }
@@ -441,6 +481,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
     let driveUpload = null;
     let file_hash = null;
     const msgId = parsed.messageId || "";
+    const ingestKey = buildIngestKey({ mailbox, messageId: msgId, attachmentIndex });
     try {
       file_hash = hashBuffer(att.content);
       const { data: existingProcessed, error: existingErr } = await supabase
@@ -486,6 +527,31 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
         attachmentIndex += 1;
         continue;
       }
+      const { data: existingInvoiceByIngest, error: ingestLookupErr } = await supabase
+        .from("invoices")
+        .select("id, file_ref")
+        .eq("ingest_key", ingestKey)
+        .limit(1);
+      if (ingestLookupErr) throw ingestLookupErr;
+      if (existingInvoiceByIngest && existingInvoiceByIngest.length) {
+        const existing = existingInvoiceByIngest[0];
+        await supabase.from("processed_emails").insert({
+          mailbox,
+          imap_uid: uid,
+          message_id: msgId,
+          attachment_index: attachmentIndex,
+          file_hash,
+          drive_file_id: null,
+          invoice_id: existing.id,
+          status: "duplicate",
+          error: null,
+        });
+        resultRef.skipped += 1;
+        resultRef.invoice_ids.push(existing.id);
+        console.log(`[email][batch] uid=${uid} skip_reason=duplicate_ingest_key invoice_id=${existing.id}`);
+        attachmentIndex += 1;
+        continue;
+      }
 
       console.log(`Uploading to Drive filename=${att.filename || "email-attachment"}`);
       driveUpload = await uploadBufferToDrive({
@@ -507,6 +573,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
           notes: `From: ${parsed.from?.text || ""}; Subject: ${parsed.subject || ""}`,
           created_at: now,
           updated_at: now,
+          ingest_key: ingestKey,
         })
         .select("*")
         .single();
@@ -553,6 +620,12 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
     } catch (err) {
       if (err?.code === "23505") {
         try {
+          const { data: ingestExisting } = await supabase
+            .from("invoices")
+            .select("id")
+            .eq("ingest_key", ingestKey)
+            .limit(1);
+          const ingestExistingInvoice = ingestExisting && ingestExisting.length ? ingestExisting[0] : null;
           const { data: dupExisting } = await supabase
             .from("files")
             .select("owner_id, drive_file_id")
@@ -562,6 +635,8 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
           const existing = dupExisting && dupExisting.length ? dupExisting[0] : null;
           if (existing) {
             resultRef.invoice_ids.push(existing.owner_id);
+          } else if (ingestExistingInvoice?.id) {
+            resultRef.invoice_ids.push(ingestExistingInvoice.id);
           } else if (invoice?.id) {
             resultRef.invoice_ids.push(invoice.id);
           }
@@ -572,10 +647,13 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
             attachment_index: attachmentIndex,
             file_hash,
             drive_file_id: existing?.drive_file_id || driveUpload?.drive_file_id || null,
-            invoice_id: existing?.owner_id || invoice?.id || null,
+            invoice_id: existing?.owner_id || ingestExistingInvoice?.id || invoice?.id || null,
             status: "duplicate",
             error: null,
           });
+          if (ingestExistingInvoice?.id) {
+            console.log(`[email][batch] uid=${uid} skip_reason=duplicate_ingest_key invoice_id=${ingestExistingInvoice.id}`);
+          }
         } catch (_) {
           /* noop */
         }
