@@ -83,6 +83,16 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+const cleanupUploadedFiles = async (req) => {
+  const paths = [];
+  if (req?.file?.path) paths.push(req.file.path);
+  if (Array.isArray(req?.files)) {
+    req.files.forEach((f) => {
+      if (f?.path) paths.push(f.path);
+    });
+  }
+  await Promise.all(paths.map((p) => fs.promises.unlink(p).catch(() => {})));
+};
 
 const streamFileRecord = (record, res) => {
   const ref = record.file_ref || "";
@@ -1672,9 +1682,7 @@ app.post("/api/upload-invoice", requireAuthFlexible, upload.single("file"), asyn
     console.error("Error in /api/upload-invoice:", err);
     return res.status(500).json({ error: "Upload failed" });
   } finally {
-    if (req.file?.path) {
-      await fs.promises.unlink(req.file.path).catch(() => {});
-    }
+    await cleanupUploadedFiles(req);
   }
 });
 
@@ -1923,9 +1931,7 @@ app.post("/api/upload-receipt", requireAuthFlexible, upload.single("file"), asyn
     console.error("Error in /api/upload-receipt:", err);
     return res.status(500).json({ error: "Receipt upload failed" });
   } finally {
-    if (req.file?.path) {
-      await fs.promises.unlink(req.file.path).catch(() => {});
-    }
+    await cleanupUploadedFiles(req);
   }
 });
 
