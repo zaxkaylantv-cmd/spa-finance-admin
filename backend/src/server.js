@@ -446,6 +446,78 @@ app.get("/api/invoices", async (req, res) => {
   }
 });
 
+const escapeCsv = (value) => {
+  if (value === null || typeof value === "undefined") return "";
+  const str = String(value);
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+app.get("/api/export/csv", requireAuth, async (_req, res) => {
+  const supabase = getSupabaseAdminClient();
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+  try {
+    const { data, error } = await supabase
+      .from("invoices")
+      .select("*")
+      .in("doc_type", ["invoice", "receipt"])
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error("CSV export query failed", error);
+      return res.status(500).json({ error: "Failed to export data" });
+    }
+    const rows = Array.isArray(data) ? data : [];
+    const headers = [
+      "doc_type",
+      "id",
+      "supplier",
+      "invoice_number",
+      "issue_date",
+      "due_date",
+      "amount",
+      "amount_missing",
+      "status",
+      "archived",
+      "currency",
+      "file_ref",
+      "created_at",
+    ];
+    const csvRows = [headers.join(",")];
+    rows.forEach((row) => {
+      const amountNum = Number(row.amount);
+      const hasAmount = Number.isFinite(amountNum);
+      const amountStr = hasAmount ? String(amountNum) : "";
+      const amountMissing = hasAmount ? "false" : "true";
+      const record = [
+        row.doc_type || row.docType || "",
+        row.id ?? "",
+        row.supplier ?? "",
+        row.invoice_number || row.invoiceNumber || "",
+        row.issue_date || row.issueDate || "",
+        row.due_date || row.dueDate || "",
+        amountStr,
+        amountMissing,
+        row.status ?? "",
+        typeof row.archived === "undefined" ? "" : row.archived,
+        row.currency ?? "",
+        row.file_ref || row.fileRef || "",
+        row.created_at || row.createdAt || "",
+      ];
+      csvRows.push(record.map(escapeCsv).join(","));
+    });
+    const csv = csvRows.join("\n");
+    const today = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", 'text/csv; charset="utf-8"');
+    res.setHeader("Content-Disposition", `attachment; filename="spa-finance-export-${today}.csv"`);
+    return res.status(200).send(csv);
+  } catch (err) {
+    console.error("CSV export failed", err);
+    return res.status(500).json({ error: "Failed to export data" });
+  }
+});
+
 app.get("/api/cashflow-summary", async (_req, res) => {
   try {
     const invoices = await getInvoices();
