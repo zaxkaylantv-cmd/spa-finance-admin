@@ -7,6 +7,12 @@ type Props = {
 };
 
 export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKeyChange }: Props) {
+  const exportOptions: { value: "invoices" | "receipts" | "all"; label: string }[] = [
+    { value: "invoices", label: "Invoices (recommended)" },
+    { value: "receipts", label: "Receipts" },
+    { value: "all", label: "All documents" },
+  ];
+
   const [emailConnected, setEmailConnected] = useState(true);
   const [emailPaused, setEmailPaused] = useState(false);
   const [remindersEnabled, setRemindersEnabled] = useState(false);
@@ -180,9 +186,11 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
               value={exportMode}
               onChange={(e) => setExportMode(e.target.value as "invoices" | "receipts" | "all")}
             >
-              <option value="invoices">Invoices (recommended)</option>
-              <option value="receipts">Receipts</option>
-              <option value="all">All documents</option>
+              {exportOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
             <p className="text-xs text-slate-500">Choose what to send to your accountant.</p>
           </label>
