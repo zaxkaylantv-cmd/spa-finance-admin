@@ -170,10 +170,10 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 lg:col-span-2">
           <p className="text-lg font-semibold text-slate-900">Data</p>
           <p className="text-sm text-slate-600">
-            Exports invoices and receipts as a CSV for your accountant. Amounts that couldn’t be extracted are left blank and flagged.
+            Exports invoices and receipts as a CSV for your accountant.
           </p>
           <button
-            className="w-fit rounded-lg border border-[color:var(--spa-border)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--spa-accent)] shadow-sm hover:bg-[color:var(--spa-wash)] disabled:opacity-60"
+            className="w-fit rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
             onClick={() => void handleExportCsv()}
             disabled={exporting}
           >
