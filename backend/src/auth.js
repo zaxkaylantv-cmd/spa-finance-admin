@@ -89,7 +89,7 @@ const requireAuth = async (req, res, next) => {
     return next();
   } catch (err) {
     const code = err?.code || err?.message;
-    console.warn("Auth failed", code || err);
+    console.warn("Auth failed", code || err, req.method, req.originalUrl);
     return res.status(401).json({ error: "Unauthorized" });
   }
 };
