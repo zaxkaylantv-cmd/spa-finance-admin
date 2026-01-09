@@ -1908,6 +1908,9 @@ export default function DocumentsTab({
                   onClick={() => {
                     if (onArchiveInvoice) {
                       onArchiveInvoice(selectedDoc.id);
+                      if (getDocKind(selectedDoc) === "receipt") {
+                        setReceipts((prev) => prev.filter((rec) => rec.id !== selectedDoc.id));
+                      }
                     } else {
                       onArchive(selectedDoc.id);
                     }
