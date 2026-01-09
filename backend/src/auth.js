@@ -75,4 +75,23 @@ const requireAuthFlexible = async (req, res, next) => {
   }
 };
 
-module.exports = { requireAuthFlexible, verifySupabaseJwt };
+const requireAuth = async (req, res, next) => {
+  const authHeader = req.get("authorization") || req.get("Authorization") || "";
+  const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : null;
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const claims = await verifySupabaseJwt(token);
+    req.user = claims;
+    return next();
+  } catch (err) {
+    const code = err?.code || err?.message;
+    console.warn("Auth failed", code || err);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
+module.exports = { requireAuthFlexible, requireAuth, verifySupabaseJwt };

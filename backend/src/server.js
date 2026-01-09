@@ -40,14 +40,8 @@ const { createReadStream } = require("fs");
 const os = require("os");
 const { execFile } = require("child_process");
 const { getSupabaseAdminClient } = require("./supabaseClient");
-const { requireAuthFlexible } = require("./auth");
-const {
-  generateAuthUrl,
-  exchangeCodeForTokens,
-  saveRefreshToken,
-  getTokenStatus,
-  consumeState,
-} = require("./google/driveAuth");
+const { requireAuthFlexible, requireAuth } = require("./auth");
+const { generateAuthUrl, exchangeCodeForTokens, saveRefreshToken, getTokenStatus, consumeState } = require("./google/driveAuth");
 const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
 const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
 const { processOneInvoiceEmail, getMailbox } = require("./email/processOnce");
@@ -144,7 +138,11 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/api/supabase-status", async (_req, res) => {
+app.get("/api/version", (_req, res) => {
+  res.json({ version: "1.0.0" });
+});
+
+app.get("/api/supabase-status", requireAuth, async (_req, res) => {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -255,9 +253,7 @@ const maybeStartEmailWorker = () => {
 };
 maybeStartEmailWorker();
 
-app.post("/api/email/process-once", processOnceHandler);
-
-app.use("/api", requireAuthFlexible);
+app.use("/api", requireAuth);
 
 app.get("/api/google/drive/status", async (_req, res) => {
   try {
@@ -307,17 +303,18 @@ app.get("/api/whoami", requireAuthFlexible, (req, res) => {
 app.get("/api/email/status", requireAuthFlexible, async (_req, res) => {
   const supabaseAdmin = getSupabaseAdminClient();
   const mailbox = getMailbox();
+  const pollSeconds = Number(process.env.EMAIL_INGEST_POLL_SECONDS || 120);
   let ingest_state = null;
   if (supabaseAdmin) {
     const ingest = await getIngestState({ supabaseAdmin, mailbox });
     ingest_state = ingest?.ok ? ingest.data : ingest;
   }
-  res.json({ ...getEmailDiscoveryStatus(), ingest_state });
+  res.json({ ...getEmailDiscoveryStatus(), ingest_state, poll_seconds: pollSeconds });
 });
 
-app.post("/api/email/process-once", processOnceHandler);
+app.post("/api/email/process-once", requireAuth, processOnceHandler);
 
-app.post("/api/email/run-cycle", async (req, res) => {
+app.post("/api/email/run-cycle", requireAuth, async (req, res) => {
   const allowManual = (process.env.EMAIL_INGEST_ALLOW_MANUAL || "0").toLowerCase();
   if (allowManual !== "1") {
     return res.status(404).json({ ok: false, error: "Manual ingest disabled" });
