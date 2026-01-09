@@ -468,6 +468,7 @@ app.get("/api/cashflow-summary", async (_req, res) => {
 
     let totalPaid = 0;
     let totalOutstanding = 0;
+    let unknownAmountCount = 0;
     const overdueInvoices = [];
     const dueSoonInvoices = [];
     const next30Invoices = [];
@@ -475,16 +476,25 @@ app.get("/api/cashflow-summary", async (_req, res) => {
     invoices
       .filter((inv) => inv.archived !== 1 && inv.archived !== true)
       .forEach((inv) => {
-        const amount = Number(inv.amount) || 0;
+        const amountNum = Number(inv.amount);
+        const hasAmount = Number.isFinite(amountNum);
         const paid = isPaidStatus(inv);
         const dueDate = getInvoiceDueDate(inv);
 
+        if (!hasAmount) {
+          unknownAmountCount += 1;
+        }
+
         if (paid) {
-          totalPaid += amount;
+          if (hasAmount) {
+            totalPaid += amountNum;
+          }
           return;
         }
 
-        totalOutstanding += amount;
+        if (hasAmount) {
+          totalOutstanding += amountNum;
+        }
 
         if (!dueDate) return; // exclude from date-based buckets if no valid due date
 
@@ -503,9 +513,13 @@ app.get("/api/cashflow-summary", async (_req, res) => {
       totalPaid,
       countOverdue: overdueInvoices.length,
       countDueSoon: dueSoonInvoices.length,
+      unknownAmountCount,
     };
 
-    let summary = "AI summary is temporarily unavailable. Metrics are still accurate.";
+    let summary =
+      unknownAmountCount > 0
+        ? "AI summary is temporarily unavailable. Totals exclude invoices with missing amounts."
+        : "AI summary is temporarily unavailable. Metrics are still accurate.";
 
     if (aiClient) {
       if (totalOutstanding === 0) {
@@ -525,7 +539,10 @@ app.get("/api/cashflow-summary", async (_req, res) => {
         .slice(0, 3)
         .map((inv) => `${inv.supplier} — ${inv.amount} due ${inv.due_date || inv.dueDate || "unknown"}`);
 
-      const next30Total = next30Invoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+      const next30Total = next30Invoices.reduce((sum, inv) => {
+        const amt = Number(inv.amount);
+        return Number.isFinite(amt) ? sum + amt : sum;
+      }, 0);
 
       const context = `
 Metrics:
