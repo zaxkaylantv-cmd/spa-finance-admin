@@ -72,10 +72,12 @@ export default function App() {
   };
 
   useEffect(() => {
+    let cancelled = false;
     const loadInvoices = async () => {
       try {
         const res = await tryFetchApi("/api/invoices");
         const data = (await res.json()) as { invoices?: Invoice[] };
+        if (cancelled) return;
         if (Array.isArray(data.invoices)) {
           const normalizedInvoices = data.invoices.map((inv: any) => ({
             ...inv,
@@ -120,16 +122,23 @@ export default function App() {
       } catch (err) {
         if (import.meta.env.DEV) {
           console.warn("Falling back to mockInvoices; backend not reachable", err);
-          setInvoices(mockInvoices);
+          if (!cancelled) setInvoices(mockInvoices);
         } else {
           console.warn("Live invoices not reachable; showing warning banner", err);
-          setLoadWarning(true);
-          setInvoices([]);
+          if (!cancelled) {
+            setLoadWarning(true);
+            setInvoices([]);
+          }
         }
       }
     };
-    loadInvoices();
-  }, []);
+    if (sessionPresent) {
+      void loadInvoices();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionPresent]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -88,7 +88,7 @@ export default function TipsTab({ appKey }: Props) {
       if (note.trim()) body.note = note.trim();
       if (customerName.trim()) body.customer_name = customerName.trim();
       if (staffName.trim() && staffName !== "add_new") body.staff_name = staffName.trim();
-      const res = await fetch(apiUrl("/api/tips"), {
+      await tryFetchApi("/api/tips", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -96,15 +96,6 @@ export default function TipsTab({ appKey }: Props) {
         },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        if (res.status === 401) {
-          setError("Unauthorised — please set the App key in Settings.");
-        } else {
-          setError("Could not add tip. Please check the details and try again.");
-        }
-        return;
-      }
-      await res.json();
       setAmount("");
       setNote("");
       setCustomerName("");

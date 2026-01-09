@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mail, UploadCloud, FileText } from "lucide-react";
+import { UploadCloud, FileText } from "lucide-react";
 import type { Invoice, InvoiceSource, InvoiceStatus } from "../data/mockInvoices";
 import type { DateRangeFilter } from "../utils/dateRangeFilter";
 import { isInvoiceInDateRange, formatRangeLabel } from "../utils/dateRangeFilter";
@@ -49,6 +49,25 @@ const formatRelativeTime = (value: string | null | undefined) => {
   return `${days}d ${suffix}`;
 };
 
+const formatPollSeconds = (pollSeconds?: number | null) => {
+  if (!Number.isFinite(pollSeconds)) return "Every hour";
+  const seconds = Number(pollSeconds);
+  if (seconds < 60) {
+    const secs = Math.round(seconds);
+    return `Every ${secs}s`;
+  }
+  if (seconds < 3600 || seconds === 3600) {
+    const minutes = Math.round(seconds / 60);
+    return `Every ${minutes} minutes`;
+  }
+  if (seconds % 3600 === 0) {
+    const hours = Math.round(seconds / 3600);
+    return `Every ${hours} hours`;
+  }
+  const hours = Math.round(seconds / 3600);
+  return `Every ${hours} hours`;
+};
+
 const getIssueDate = (invoice: Invoice): string | undefined => invoice.issue_date ?? invoice.issueDate;
 const getDueDate = (invoice: Invoice): string | undefined => invoice.due_date ?? invoice.dueDate;
 
@@ -65,6 +84,15 @@ const statusStyles: Record<InvoiceStatus, string> = {
 const sourceStyles: Record<InvoiceSource, string> = {
   Upload: "bg-[color:var(--spa-wash)] text-slate-800 border-[color:var(--spa-border)]",
   Email: "bg-[color:var(--spa-wash)] text-slate-700 border-[color:var(--spa-border)]",
+};
+
+const normalizeSource = (value: unknown): InvoiceSource => {
+  const valid: InvoiceSource[] = ["Upload", "Email"];
+  if (typeof value === "string") {
+    const match = valid.find((opt) => opt.toLowerCase() === value.toLowerCase());
+    if (match) return match;
+  }
+  return "Upload";
 };
 
 const DOCUMENTS_RANGE_KEY = "cashflow_documents_date_range";
@@ -150,7 +178,6 @@ export default function DocumentsTab({
     error: string | null;
     lastUpdated: number | null;
   }>({ data: null, loading: true, error: null, lastUpdated: null });
-  const [showRawStatus, setShowRawStatus] = useState(false);
   const [currentDocTab, setCurrentDocTab] = useState<"invoice" | "receipt">("invoice");
   const [isDragging, setIsDragging] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<
@@ -215,31 +242,73 @@ export default function DocumentsTab({
       dateRange: range,
     };
   });
+  const [receipts, setReceipts] = useState<any[]>([]);
+  const [receiptsLoading, setReceiptsLoading] = useState<boolean>(true);
+  const [receiptsError, setReceiptsError] = useState<string | null>(null);
   const dateRangeLabel = useMemo(() => formatRangeLabel(filters.dateRange, now), [filters.dateRange, now]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const receiptFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const filteredDocuments = useMemo(
-    () =>
-      invoices
-        .filter((doc) => isInvoiceInDateRange(doc, filters.dateRange, new Date()))
-        .filter((doc) => {
-          const statusMatch = filters.status === "All" || doc.status === filters.status;
-          const categoryMatch = filters.category === "All" || doc.category === filters.category;
-          const sourceMatch = filters.source === "All" || doc.source === filters.source;
-          const supplierMatch =
-            filters.supplier.trim().length === 0 ||
-            doc.supplier.toLowerCase().includes(filters.supplier.trim().toLowerCase());
-          return statusMatch && categoryMatch && sourceMatch && supplierMatch;
-        }),
-    [invoices, filters],
-  );
+  const documents = useMemo(() => {
+    if (!receipts.length) return invoices;
+    const seen = new Set(invoices.map((doc) => `${getDocKind(doc)}-${doc.id}`));
+    const extras = receipts.filter((rec) => {
+      const key = `${getDocKind(rec)}-${rec.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return [...invoices, ...extras];
+  }, [invoices, receipts]);
+
+  const filteredDocuments = useMemo(() => {
+    const nowDate = new Date();
+    const matchesRange = (doc: any) => {
+      if (getDocKind(doc) === "receipt") {
+        const receiptDate =
+          (doc as any).issue_date ||
+          (doc as any).issueDate ||
+          (doc as any).receipt_date ||
+          (doc as any).receiptDate ||
+          (doc as any).created_at ||
+          (doc as any).createdAt;
+        if (!receiptDate) {
+          return filters.dateRange === "all";
+        }
+        const pseudoInvoice = {
+          ...doc,
+          issue_date: receiptDate,
+          issueDate: receiptDate,
+          due_date: receiptDate,
+          dueDate: receiptDate,
+        } as Invoice;
+        return isInvoiceInDateRange(pseudoInvoice, filters.dateRange, nowDate);
+      }
+      return isInvoiceInDateRange(doc as Invoice, filters.dateRange, nowDate);
+    };
+
+    return documents
+      .filter((doc) => matchesRange(doc))
+      .filter((doc) => {
+        const statusValue = (doc as any).status || (getDocKind(doc) === "receipt" ? "Captured" : doc.status);
+        const categoryValue = (doc as any).category || "Other";
+        const sourceValue = (doc as any).source || (doc as any).owner_type || (doc as any).ownerType || "Upload";
+        const supplierValue = ((doc as any).supplier || "").toString();
+        const statusMatch = filters.status === "All" || statusValue === filters.status;
+        const categoryMatch = filters.category === "All" || categoryValue === filters.category;
+        const sourceMatch = filters.source === "All" || sourceValue === filters.source;
+        const supplierMatch =
+          filters.supplier.trim().length === 0 ||
+          supplierValue.toLowerCase().includes(filters.supplier.trim().toLowerCase());
+        return statusMatch && categoryMatch && sourceMatch && supplierMatch;
+      });
+  }, [documents, filters]);
   const invoiceRows = useMemo(() => filteredDocuments.filter((doc) => getDocKind(doc) === "invoice"), [filteredDocuments]);
   const receiptRows = useMemo(() => filteredDocuments.filter((doc) => getDocKind(doc) === "receipt"), [filteredDocuments]);
   const tableRows = currentDocTab === "invoice" ? invoiceRows : receiptRows;
   const selectedDoc = useMemo(
-    () => invoices.find((doc) => doc.id === selectedDocId) ?? null,
-    [invoices, selectedDocId],
+    () => documents.find((doc) => doc.id === selectedDocId) ?? null,
+    [documents, selectedDocId],
   );
   const originalFileRef = useMemo(() => getOriginalFileRef(selectedDoc), [selectedDoc]);
 
@@ -299,9 +368,48 @@ export default function DocumentsTab({
   }, [selectedDoc, originalFileRef, appKey]);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadReceipts = async () => {
+      setReceiptsLoading(true);
+      setReceiptsError(null);
+      try {
+        const res = await tryFetchApi("/api/receipts", {
+          headers: {
+            ...(appKey ? { "X-APP-KEY": appKey } : {}),
+          },
+        });
+        const data = (await res.json()) as { receipts?: any[] };
+        if (cancelled) return;
+        const rows = Array.isArray(data.receipts) ? data.receipts : [];
+        const normalized = rows.map((rec, idx) => ({
+          ...rec,
+          id: String(rec.id ?? rec.receipt_id ?? rec.receiptId ?? `receipt-${idx}`),
+          doc_type: rec.doc_type || rec.docType || "receipt",
+          doc_kind: rec.doc_kind || rec.docKind || "receipt",
+          source: rec.source || rec.owner_type || rec.ownerType || rec.source_type || "Upload",
+        }));
+        setReceipts(normalized);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Failed to load receipts", err);
+          setReceiptsError("Unable to load receipts right now.");
+        }
+      } finally {
+        if (!cancelled) {
+          setReceiptsLoading(false);
+        }
+      }
+    };
+    void loadReceipts();
+    return () => {
+      cancelled = true;
+    };
+  }, [appKey]);
+
+  useEffect(() => {
     const loadAiStatus = async () => {
       try {
-        const res = await fetch(apiUrl("/api/ai/status"), {
+        const res = await tryFetchApi("/api/ai/status", {
           headers: {
             ...(appKey ? { "X-APP-KEY": appKey } : {}),
           },
@@ -337,8 +445,9 @@ export default function DocumentsTab({
           throw new Error(`Email status ${res.status}`);
         }
         const data = await res.json();
+        const parsedPollSeconds = Number.isFinite(Number(data?.poll_seconds)) ? Number(data.poll_seconds) : null;
         if (cancelled) return;
-        setEmailStatusData({ data, loading: false, error: null, lastUpdated: Date.now() });
+        setEmailStatusData({ data: { ...data, poll_seconds: parsedPollSeconds }, loading: false, error: null, lastUpdated: Date.now() });
         if (typeof data.enabled !== "undefined") {
           setEmailConnected(Boolean(data.enabled));
         }
@@ -481,7 +590,7 @@ export default function DocumentsTab({
         setFileMessage("No file attached");
         return;
       }
-      const res = await fetch(apiUrl(targetPath), {
+      const res = await tryFetchApi(targetPath, {
         headers: {
           ...(appKey ? { "X-APP-KEY": appKey } : {}),
         },
@@ -516,7 +625,7 @@ export default function DocumentsTab({
     setAiLoading(true);
     setAiMessage(null);
     try {
-      const res = await fetch(apiUrl(`/api/ai/invoices/${selectedDoc.id}/actions`), {
+      const res = await tryFetchApi(`/api/ai/invoices/${selectedDoc.id}/actions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -589,14 +698,9 @@ export default function DocumentsTab({
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const headers: Record<string, string> = {};
-        if (typeof appKey === "string") {
-          headers["X-APP-KEY"] = appKey;
-        }
-        const response = await fetch(url, {
+        const response = await tryFetchApi("/api/upload-invoice", {
           method: "POST",
           body: formData,
-          headers,
         });
         if (!response.ok) {
           console.error("Upload failed", response.status, "at", url);
@@ -675,14 +779,9 @@ export default function DocumentsTab({
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const headers: Record<string, string> = {};
-        if (typeof appKey === "string") {
-          headers["X-APP-KEY"] = appKey;
-        }
-        const response = await fetch(url, {
+        const response = await tryFetchApi("/api/upload-receipt", {
           method: "POST",
           body: formData,
-          headers,
         });
         if (!response.ok) {
           console.error("Receipt upload failed", response.status, "at", url);
@@ -951,9 +1050,10 @@ export default function DocumentsTab({
                   const label =
                     variant === "active" ? "Active" : variant === "backoff" ? "Backoff" : variant === "offline" ? "Offline" : "Offline";
                   const lastRun = statusData?.last_run_at || ingestState?.updated_at || null;
+                  const pollSeconds = typeof statusData?.poll_seconds === "number" ? statusData.poll_seconds : null;
                   const nextLabel = nextRetry
                     ? `Retry ${formatRelativeTime(nextRetry.toISOString())}`
-                    : `Every ${statusData?.pollSeconds || 2} minutes`;
+                    : formatPollSeconds(pollSeconds);
                   const lastError = ingestState?.last_error || statusData?.last_error || null;
                   const sample = Array.isArray(statusData?.sample_messages) ? statusData.sample_messages.slice(-3).reverse() : [];
                   const attempts = ingestState?.attempts || 0;
@@ -1038,19 +1138,6 @@ export default function DocumentsTab({
                         )}
                       </div>
                       <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-4 w-4 text-slate-500" />
-                            <span className="font-semibold text-slate-800">Diagnostics</span>
-                          </div>
-                          <button
-                            className="text-xs font-semibold text-slate-600 underline underline-offset-4"
-                            type="button"
-                            onClick={() => setShowRawStatus((prev) => !prev)}
-                          >
-                            {showRawStatus ? "Hide JSON" : "Show raw JSON"}
-                          </button>
-                        </div>
                         <div className="grid gap-2 md:grid-cols-3">
                           <div className="rounded-lg bg-white/80 px-3 py-2 shadow-inner">
                             <p className="text-[11px] uppercase text-slate-500">Unseen</p>
@@ -1067,11 +1154,6 @@ export default function DocumentsTab({
                             </p>
                           </div>
                         </div>
-                        {showRawStatus && (
-                          <pre className="max-h-64 overflow-auto rounded-lg bg-slate-900 px-3 py-2 text-[11px] text-emerald-100">
-                            {JSON.stringify(emailStatusData.data || {}, null, 2)}
-                          </pre>
-                        )}
                       </div>
                     </>
                   );
@@ -1153,16 +1235,96 @@ export default function DocumentsTab({
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/60">
-            {tableRows.length === 0 ? (
+            {currentDocTab === "receipt" ? (
+              receiptsLoading && receiptRows.length === 0 ? (
+                <div className="space-y-2 px-4 py-6">
+                  {[0, 1, 2].map((idx) => (
+                    <div key={idx} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                      <div className="h-10 w-10 animate-pulse rounded-full bg-slate-100" />
+                      <div className="flex-1 space-y-1">
+                        <div className="h-3 w-32 animate-pulse rounded bg-slate-100" />
+                        <div className="h-3 w-24 animate-pulse rounded bg-slate-100" />
+                      </div>
+                      <div className="h-6 w-16 animate-pulse rounded bg-slate-100" />
+                    </div>
+                  ))}
+                </div>
+              ) : receiptRows.length === 0 ? (
+                <div className="flex min-h-[160px] flex-col items-center justify-center px-4 py-6 text-center">
+                  <p className="text-sm font-semibold text-slate-900">No receipts yet.</p>
+                  <p className="text-xs text-slate-500">Upload a receipt photo to get started.</p>
+                  {receiptsError ? <p className="mt-2 text-xs text-rose-600">{receiptsError}</p> : null}
+                </div>
+              ) : (
+                <table className="min-w-full divide-y divide-slate-100 text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      {["Date", "Receipt", "Supplier", "Amount", "Status", "Category", "Source", "Actions"].map((col) => (
+                        <th key={col} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {receiptRows.map((doc) => {
+                      const receiptStatus = (doc as any).status || "Captured";
+                      const statusClass = statusStyles[receiptStatus as InvoiceStatus] || "bg-slate-100 text-slate-700 border-slate-200";
+                      const receiptSource = normalizeSource(
+                        (doc as any).source || (doc as any).owner_type || (doc as any).ownerType || "Upload",
+                      );
+                      const sourceClass = sourceStyles[receiptSource] || "bg-slate-100 text-slate-700 border-slate-200";
+                      const receiptLabel =
+                        (doc as any).receipt_number ||
+                        (doc as any).receiptNumber ||
+                        (doc as any).reference ||
+                        (doc as any).original_filename ||
+                        "Receipt";
+                      const receiptDate =
+                        (doc as any).issue_date ||
+                        (doc as any).issueDate ||
+                        (doc as any).receipt_date ||
+                        (doc as any).receiptDate ||
+                        (doc as any).created_at ||
+                        (doc as any).createdAt;
+                      return (
+                        <tr key={doc.id} className="hover:bg-slate-50/70">
+                          <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(receiptDate)}</td>
+                          <td className="px-3 py-3">
+                            <span className="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold bg-white border-slate-200 text-slate-700">
+                              {receiptLabel}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 font-semibold text-slate-900">{(doc as any).supplier || "—"}</td>
+                          <td className="px-3 py-3 font-semibold text-slate-900">{formatCurrency((doc as any).amount)}</td>
+                          <td className="px-3 py-3">
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}
+                            >
+                              {receiptStatus}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-slate-600">{(doc as any).category || "Other"}</td>
+                          <td className="px-3 py-3">
+                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceClass}`}>
+                              {receiptSource}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )
+            ) : tableRows.length === 0 ? (
               <div className="flex min-h-[160px] flex-col items-center justify-center px-4 py-6 text-center">
-                <p className="text-sm font-semibold text-slate-900">
-                  {currentDocTab === "receipt" ? "No receipts yet." : "No invoices yet."}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {currentDocTab === "receipt"
-                    ? "Upload a receipt photo to get started."
-                    : "Upload an invoice PDF or send it to the inbox."}
-                </p>
+                <p className="text-sm font-semibold text-slate-900">No invoices yet.</p>
+                <p className="text-xs text-slate-500">Upload an invoice PDF or send it to the inbox.</p>
               </div>
             ) : (
               <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -1204,8 +1366,10 @@ export default function DocumentsTab({
                         </td>
                         <td className="px-3 py-3 text-slate-600">{doc.category}</td>
                         <td className="px-3 py-3">
-                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceStyles[doc.source]}`}>
-                            {doc.source}
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceStyles[normalizeSource(doc.source)]}`}
+                          >
+                            {normalizeSource(doc.source)}
                           </span>
                         </td>
                         <td className="px-3 py-3">
@@ -1331,8 +1495,10 @@ export default function DocumentsTab({
                 </div>
                 <div>
                   <p className="text-xs text-slate-500">Source</p>
-                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceStyles[selectedDoc.source]}`}>
-                    {selectedDoc.source}
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceStyles[normalizeSource(selectedDoc.source)]}`}
+                  >
+                    {normalizeSource(selectedDoc.source)}
                   </span>
                 </div>
                 <div className="text-right">
