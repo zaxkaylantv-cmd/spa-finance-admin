@@ -1564,6 +1564,10 @@ app.post("/api/upload-invoice", requireAuthFlexible, upload.single("file"), asyn
   } catch (err) {
     console.error("Error in /api/upload-invoice:", err);
     return res.status(500).json({ error: "Upload failed" });
+  } finally {
+    if (req.file?.path) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+    }
   }
 });
 
@@ -1811,6 +1815,10 @@ app.post("/api/upload-receipt", requireAuthFlexible, upload.single("file"), asyn
   } catch (err) {
     console.error("Error in /api/upload-receipt:", err);
     return res.status(500).json({ error: "Receipt upload failed" });
+  } finally {
+    if (req.file?.path) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+    }
   }
 });
 
