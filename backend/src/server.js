@@ -188,10 +188,9 @@ const runProcessOnceWithTimeout = () =>
   });
 
 const processOnceHandler = async (req, res) => {
-  const secret = req.get("x-email-ingest-secret") || "";
-  const expected = process.env.EMAIL_INGEST_ADMIN_SECRET || "";
-  if (!expected || secret !== expected) {
-    return res.status(401).json({ error: "Unauthorized" });
+  const allowManual = (process.env.EMAIL_INGEST_ALLOW_MANUAL || "0").toLowerCase();
+  if (allowManual !== "1") {
+    return res.status(404).json({ ok: false, error: "Manual ingest disabled" });
   }
   try {
     const result = await runProcessOnceWithTimeout();
@@ -318,11 +317,6 @@ app.post("/api/email/run-cycle", requireAuth, async (req, res) => {
   const allowManual = (process.env.EMAIL_INGEST_ALLOW_MANUAL || "0").toLowerCase();
   if (allowManual !== "1") {
     return res.status(404).json({ ok: false, error: "Manual ingest disabled" });
-  }
-  const secret = req.get("x-email-ingest-secret") || "";
-  const expected = process.env.EMAIL_INGEST_ADMIN_SECRET || "";
-  if (!expected || secret !== expected) {
-    return res.status(401).json({ error: "Unauthorized" });
   }
   const supabaseAdmin = getSupabaseAdminClient();
   const mailbox = getMailbox();
