@@ -460,9 +460,16 @@ app.get("/api/export/csv", requireAuth, async (_req, res) => {
   if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
   try {
     const modeRaw = typeof _req.query.mode === "string" ? _req.query.mode.toLowerCase() : "invoices";
-    const mode = ["invoices", "receipts", "all"].includes(modeRaw) ? modeRaw : "invoices";
-    const docTypes =
-      mode === "all" ? ["invoice", "receipt"] : mode === "receipts" ? ["receipt"] : ["invoice"];
+    const modeNormalized =
+      modeRaw === "invoice"
+        ? "invoices"
+        : modeRaw === "receipt"
+          ? "receipts"
+          : ["invoices", "receipts", "all"].includes(modeRaw)
+            ? modeRaw
+            : "invoices";
+    console.log("[csv] mode=", modeNormalized);
+    const docTypes = modeNormalized === "all" ? ["invoice", "receipt"] : [modeNormalized.slice(0, -1)];
 
     const { data, error } = await supabase
       .from("invoices")
@@ -515,7 +522,11 @@ app.get("/api/export/csv", requireAuth, async (_req, res) => {
     const csv = csvRows.join("\n");
     const today = new Date().toISOString().slice(0, 10);
     const filenamePrefix =
-      mode === "all" ? "spa-finance-all" : mode === "receipts" ? "spa-finance-receipts" : "spa-finance-invoices";
+      modeNormalized === "all"
+        ? "spa-finance-all"
+        : modeNormalized === "receipts"
+          ? "spa-finance-receipts"
+          : "spa-finance-invoices";
     res.setHeader("Content-Type", 'text/csv; charset="utf-8"');
     res.setHeader("Content-Disposition", `attachment; filename="${filenamePrefix}-${today}.csv"`);
     return res.status(200).send(csv);
