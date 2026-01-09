@@ -434,7 +434,7 @@ export default function DocumentsTab({
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    const loadEmailStatus = async () => {
+    const loadEmailStatus = async (attempt = 1) => {
       try {
         const res = await tryFetchApi("/api/email/status", {
           headers: {
@@ -453,6 +453,16 @@ export default function DocumentsTab({
         }
       } catch (err: any) {
         if (cancelled) return;
+        const statusMatch =
+          typeof err?.message === "string" ? err.message.match(/(?:Bad response|Email status)\s+(\d+)/i) : null;
+        const status = statusMatch ? Number(statusMatch[1]) : undefined;
+        const isNetworkError = status === 0 || err?.name === "TypeError";
+        const shouldRetry = attempt === 1 && (status === 401 || status === 0 || isNetworkError);
+        if (shouldRetry) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          if (cancelled) return;
+          return loadEmailStatus(attempt + 1);
+        }
         setEmailStatusData((prev) => ({
           ...prev,
           loading: false,
