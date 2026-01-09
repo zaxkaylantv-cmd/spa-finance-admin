@@ -16,7 +16,7 @@ const getJwks = async () => {
   const issuer = getSupabaseIssuer();
   if (!issuer) return null;
   const { createRemoteJWKSet } = await loadJose();
-  jwksClient = createRemoteJWKSet(new URL(`${issuer}/jwks`));
+  jwksClient = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
   return jwksClient;
 };
 
