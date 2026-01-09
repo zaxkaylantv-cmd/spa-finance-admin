@@ -16,6 +16,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [exportMode, setExportMode] = useState<"invoices" | "receipts" | "all">("invoices");
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
@@ -56,7 +57,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
     setExportSuccess(false);
     setExporting(true);
     try {
-      const res = await tryFetchApi("/api/export/csv");
+      const res = await tryFetchApi(`/api/export/csv?mode=${exportMode}`);
       if (!res.ok) {
         throw new Error(`Export failed (${res.status})`);
       }
@@ -172,6 +173,19 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
           <p className="text-sm text-slate-600">
             Exports invoices and receipts as a CSV for your accountant.
           </p>
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-600">Export type</span>
+            <select
+              className="w-full rounded-lg border border-slate-200 px-3 py-2"
+              value={exportMode}
+              onChange={(e) => setExportMode(e.target.value as "invoices" | "receipts" | "all")}
+            >
+              <option value="invoices">Invoices (recommended)</option>
+              <option value="receipts">Receipts</option>
+              <option value="all">All documents</option>
+            </select>
+            <p className="text-xs text-slate-500">Choose what to send to your accountant.</p>
+          </label>
           <button
             className="w-fit rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
             onClick={() => void handleExportCsv()}
