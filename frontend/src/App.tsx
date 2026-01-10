@@ -255,7 +255,7 @@ export default function App() {
             </div>
           </div>
           <div className="hidden items-center gap-4 sm:flex">
-            <span className="rounded-full bg-slate-200 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#2BB3B1] shadow-sm">
+            <span className="rounded-full bg-slate-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#2BB3B1] shadow-sm">
               Powered by KALYAN AI
             </span>
             {sessionEmail ? (

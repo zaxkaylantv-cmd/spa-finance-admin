@@ -208,10 +208,7 @@ export default function DashboardTab({ invoices }: Props) {
       <div className="space-y-6">
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-100/70">
           <div className="px-4 py-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <span className="h-5 w-1 rounded-full bg-[#8FAE9A]" />
-              <p className="text-lg font-semibold text-slate-900">Action needed</p>
-            </div>
+            <p className="text-lg font-semibold text-slate-900">Action needed</p>
             <p className="text-sm text-slate-500 mt-1">Invoices that are due soon or overdue.</p>
           </div>
           <div className="overflow-x-auto">
