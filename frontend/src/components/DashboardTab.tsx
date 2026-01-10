@@ -157,6 +157,7 @@ export default function DashboardTab({ invoices }: Props) {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
+          <p className="text-sm font-semibold text-slate-700">Finance Admin</p>
           <p className="text-sm uppercase tracking-[0.16em] text-[#8FAE9A]">At a glance</p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
           <p className="text-slate-500 mt-1">
