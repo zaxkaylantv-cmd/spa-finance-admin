@@ -248,11 +248,6 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="rounded-full bg-slate-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#2BB3B1] shadow-sm">
-              Powered by KALYAN AI
-            </span>
-          </div>
           <div className="hidden items-center gap-4 sm:flex">
             {sessionEmail ? (
               <>
@@ -274,6 +269,11 @@ export default function App() {
                 Sign in with Google
               </button>
             )}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-slate-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#2BB3B1] shadow-sm">
+              Powered by KALYAN AI
+            </span>
           </div>
         </div>
         <div className="border-t border-slate-200 bg-slate-50/60">
