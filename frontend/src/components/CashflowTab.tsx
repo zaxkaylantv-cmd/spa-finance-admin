@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import MetricCard from "./MetricCard";
-import { AlertCircle, BarChart3, Gauge, CheckCircle2 } from "lucide-react";
+import { AlertCircle, BarChart3, Gauge, CheckCircle2, Sparkles } from "lucide-react";
 import type { Invoice } from "../data/mockInvoices";
 import { getDisplayStatus, getInvoiceDueDate, formatDisplayDate } from "../utils/invoiceDates";
 
@@ -239,6 +239,16 @@ export default function CashflowTab({ invoices }: Props) {
         </div>
 
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EEF3F0] text-[#2BB3B1]">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-base font-semibold text-[#2BB3B1]">AI Cashflow Planning</p>
+              <p className="text-sm text-slate-600">Forward-looking guidance to plan supplier payments week by week.</p>
+              <p className="text-xs text-slate-500">Highlights the busiest weeks and suggests actions to smooth cash out.</p>
+            </div>
+          </div>
           <div className="flex items-start gap-2 text-sm text-slate-800">
             <AlertCircle className="mt-0.5 h-4 w-4 text-rose-500" />
             <p>
