@@ -184,32 +184,6 @@ export default function DashboardTab({ invoices }: Props) {
           </select>
           <span className="ml-3 text-xs font-medium text-slate-500">{rangeLabel}</span>
         </div>
-          <div className="flex items-center justify-between px-4 py-3 text-sm text-slate-600">
-            <span>
-              Showing {totalAction === 0 ? 0 : startIndex + 1}–{Math.min(endIndex, totalAction)} of {totalAction}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
-                onClick={() => setActionPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage <= 1}
-              >
-                Previous
-              </button>
-              <span className="text-xs font-semibold text-slate-700">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                type="button"
-                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
-                onClick={() => setActionPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage >= totalPages}
-              >
-                Next
-              </button>
-            </div>
-          </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -294,6 +268,32 @@ export default function DashboardTab({ invoices }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex items-center justify-between px-4 pb-4 text-sm text-slate-600">
+            <span>
+              Showing {totalAction === 0 ? 0 : startIndex + 1}–{Math.min(endIndex, totalAction)} of {totalAction}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                onClick={() => setActionPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+              >
+                Previous
+              </button>
+              <span className="text-xs font-semibold text-slate-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                onClick={() => setActionPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
         <div className="rounded-2xl border border-[color:var(--spa-border)] bg-white p-4 text-center shadow-lg shadow-slate-100/70">
