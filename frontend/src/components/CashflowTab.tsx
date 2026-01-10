@@ -99,7 +99,6 @@ export default function CashflowTab({ invoices }: Props) {
   return (
     <div className="space-y-8">
       <div>
-        <p className="text-sm uppercase tracking-[0.16em] text-[color:var(--spa-muted)]">Cash Flow</p>
         <h1 className="text-3xl font-bold text-slate-900">Cashflow</h1>
         <p className="text-slate-500">
           Stay ahead of busy weeks and larger payments.
