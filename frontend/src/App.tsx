@@ -217,20 +217,28 @@ export default function App() {
 
   if (!sessionPresent) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-md space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="space-y-1 text-center">
+      <div
+        className="flex min-h-screen items-center justify-center px-4"
+        style={{ background: "linear-gradient(180deg, #F7F9FA 0%, #EEF3F0 100%)" }}
+      >
+        <div className="relative w-full max-w-md space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-lg shadow-slate-200/60">
+          <div className="absolute inset-x-0 top-0 h-[4px] rounded-t-2xl" style={{ backgroundColor: "#8FAE9A" }} />
+          <div className="space-y-1 text-center pt-2">
             <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--spa-muted)]">{tenantConfig.tenantName}</p>
             <p className="text-lg font-semibold text-slate-900">{tenantConfig.productName}</p>
+            <p className="text-sm text-slate-500">Intelligent finance admin for The Spa by Kaajal</p>
             <p className="text-sm text-slate-500">Sign in with your Google account to continue.</p>
           </div>
           <button
-            className="w-full rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            className="w-full rounded-md bg-[#8FAE9A] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B] disabled:opacity-70"
             onClick={handleSignIn}
             type="button"
           >
             Sign in with Google
           </button>
+          <div className="flex justify-end text-xs font-semibold text-[#6E88A6] hover:text-[#506884]">
+            Powered by KALYAN AI
+          </div>
         </div>
       </div>
     );
