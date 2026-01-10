@@ -156,17 +156,17 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
           </div>
           <label className="space-y-1 text-sm">
             <span className="text-slate-600">Email address</span>
-            <input className="w-full rounded-lg border border-slate-200 px-3 py-2" defaultValue="invoices@demo-company.com" />
+            <input className="w-full rounded-lg border border-slate-200 px-3 py-2" defaultValue="kaajal@thespabykaajal.com" />
           </label>
           <div className="flex flex-wrap items-center gap-3">
             <button
-              className="rounded-lg border border-[color:var(--spa-border)] bg-white px-4 py-2 text-sm font-semibold text-[color:var(--spa-accent)] shadow-sm hover:bg-[color:var(--spa-wash)]"
+              className="rounded-lg border border-transparent bg-[#8FAE9A] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B]"
               onClick={toggleEmailStatus}
             >
               {emailConnected ? "Reconnect" : "Connect email inbox"}
             </button>
             <button
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-[color:var(--spa-wash)]"
+              className="rounded-lg border border-transparent bg-[#8FAE9A] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B]"
               onClick={() => setEmailPaused((prev) => !prev)}
             >
               {emailPaused ? "Resume" : "Pause"} email capture
