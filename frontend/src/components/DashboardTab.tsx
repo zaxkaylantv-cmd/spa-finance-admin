@@ -266,10 +266,7 @@ export default function DashboardTab({ invoices }: Props) {
               <Sparkles className="h-5 w-5" />
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-center gap-2">
-                <span className="h-5 w-1 rounded-full bg-[#8FAE9A]" />
-                <p className="text-base font-semibold text-slate-900">AI Cash Flow Analysis</p>
-              </div>
+              <p className="text-base font-semibold text-[#2BB3B1]">AI Cash Flow Analysis</p>
               {summaryLoading && <p>Analysing your cashflow…</p>}
               {summaryError && <p className="text-rose-600">AI summary unavailable. Please try again later.</p>}
               {!summaryLoading && !summaryError && (
