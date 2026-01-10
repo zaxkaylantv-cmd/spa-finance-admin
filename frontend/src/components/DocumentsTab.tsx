@@ -876,19 +876,18 @@ export default function DocumentsTab({
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.16em] text-cyan-600">Documents</p>
           <h1 className="text-3xl font-bold text-slate-900">Documents</h1>
           <p className="text-slate-500">Keep every invoice in one place. AI reads them for you and keeps cashflow current.</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 text-sm font-semibold shadow-sm">
+          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1 text-sm font-semibold shadow-sm">
             {(["invoice", "receipt"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setCurrentDocTab(tab)}
-                className={`rounded-full px-3 py-1.5 transition ${
-                  currentDocTab === tab ? "bg-slate-900 text-white shadow" : "text-slate-700 hover:bg-slate-100"
+                className={`min-w-[110px] rounded-md px-4 py-2.5 transition focus:outline-none focus:ring-2 focus:ring-cyan-200 ${
+                  currentDocTab === tab ? "bg-slate-900 text-white shadow-sm" : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
                 {tab === "invoice" ? "Invoices" : "Receipts"}
