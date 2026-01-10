@@ -9,6 +9,7 @@ import { tryFetchApi } from "../utils/api";
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const DASHBOARD_RANGE_KEY = "cashflow_dashboard_date_range";
+const ACTION_PAGE_SIZE = 15;
 
 const isOutstanding = (inv: Invoice): boolean => {
   const status = (inv.status || "").toLowerCase();
@@ -41,6 +42,7 @@ export default function DashboardTab({ invoices }: Props) {
   const [summary, setSummary] = useState<string>("");
   const [summaryLoading, setSummaryLoading] = useState<boolean>(true);
   const [summaryError, setSummaryError] = useState<boolean>(false);
+  const [actionPage, setActionPage] = useState<number>(1);
   const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilter>(() => {
     const fallback: DateRangeFilter = "all";
     if (typeof window === "undefined") return fallback;
@@ -51,6 +53,7 @@ export default function DashboardTab({ invoices }: Props) {
   const [metrics, setMetrics] = useState<CashflowSummaryResponse["metrics"] | null>(null);
 
   useEffect(() => {
+    setActionPage(1);
     const fetchSummary = async () => {
       setSummaryLoading(true);
       setSummaryError(false);
@@ -135,8 +138,18 @@ export default function DashboardTab({ invoices }: Props) {
       const aDue = getInvoiceDueDate(a)?.getTime() ?? Infinity;
       const bDue = getInvoiceDueDate(b)?.getTime() ?? Infinity;
       return aDue - bDue;
-    })
-    .slice(0, 7);
+    });
+
+  useEffect(() => {
+    setActionPage(1);
+  }, [dateRangeFilter, invoices.length]);
+
+  const totalAction = attentionInvoices.length;
+  const totalPages = Math.max(1, Math.ceil(totalAction / ACTION_PAGE_SIZE));
+  const currentPage = Math.min(actionPage, totalPages);
+  const startIndex = (currentPage - 1) * ACTION_PAGE_SIZE;
+  const endIndex = startIndex + ACTION_PAGE_SIZE;
+  const paginatedAttention = attentionInvoices.slice(startIndex, endIndex);
 
   const rangeLabel = formatRangeLabel(dateRangeFilter, now);
 
@@ -171,6 +184,32 @@ export default function DashboardTab({ invoices }: Props) {
           </select>
           <span className="ml-3 text-xs font-medium text-slate-500">{rangeLabel}</span>
         </div>
+          <div className="flex items-center justify-between px-4 py-3 text-sm text-slate-600">
+            <span>
+              Showing {totalAction === 0 ? 0 : startIndex + 1}–{Math.min(endIndex, totalAction)} of {totalAction}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                onClick={() => setActionPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+              >
+                Previous
+              </button>
+              <span className="text-xs font-semibold text-slate-700">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                onClick={() => setActionPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -223,7 +262,7 @@ export default function DashboardTab({ invoices }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {attentionInvoices.map((item) => (
+                {paginatedAttention.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/70">
                     <td className="px-3 py-2 font-semibold text-slate-900">{item.supplier}</td>
                     <td className="px-3 py-2 text-slate-600">
