@@ -195,7 +195,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
             <p className="text-xs text-slate-500">Choose what to send to your accountant.</p>
           </label>
           <button
-            className="w-fit rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-fit rounded-lg border border-transparent bg-[#8FAE9A] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B] disabled:opacity-60 disabled:cursor-not-allowed"
             onClick={() => void handleExportCsv()}
             disabled={exporting}
           >
@@ -269,7 +269,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90"
+              className="rounded-lg border border-transparent bg-[#8FAE9A] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B]"
               onClick={() => {
                 const next = !remindersEnabled;
                 setRemindersEnabled(next);
