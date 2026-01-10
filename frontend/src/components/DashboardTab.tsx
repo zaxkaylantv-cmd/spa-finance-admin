@@ -37,6 +37,7 @@ type CashflowSummaryResponse = {
 };
 
 export default function DashboardTab({ invoices }: Props) {
+  const [showFullSummary, setShowFullSummary] = useState(false);
   const [summary, setSummary] = useState<string>("");
   const [summaryLoading, setSummaryLoading] = useState<boolean>(true);
   const [summaryError, setSummaryError] = useState<boolean>(false);
@@ -143,9 +144,11 @@ export default function DashboardTab({ invoices }: Props) {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.16em] text-[color:var(--spa-muted)]">At a glance</p>
+          <p className="text-sm uppercase tracking-[0.16em] text-[#8FAE9A]">At a glance</p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500">A clear, AI-supported view of what&apos;s due, what&apos;s overdue, and where to focus.</p>
+          <p className="text-slate-500 mt-1">
+            A clear, AI-supported view of what&apos;s due, what&apos;s overdue, and where to focus.
+          </p>
         </div>
         <div className="inline-flex items-center rounded-lg border border-[color:var(--spa-border)] bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">
           <CalendarRange className="mr-2 h-4 w-4 text-[color:var(--spa-muted)]" />
@@ -203,10 +206,13 @@ export default function DashboardTab({ invoices }: Props) {
       </div>
 
       <div className="space-y-6">
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-100/70">
           <div className="px-4 py-3 border-b border-slate-100">
-            <p className="text-lg font-semibold text-slate-900">Action needed</p>
-            <p className="text-sm text-slate-500">Invoices that are due soon or overdue.</p>
+            <div className="flex items-center gap-2">
+              <span className="h-5 w-1 rounded-full bg-[#8FAE9A]" />
+              <p className="text-lg font-semibold text-slate-900">Action needed</p>
+            </div>
+            <p className="text-sm text-slate-500 mt-1">Invoices that are due soon or overdue.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -254,13 +260,16 @@ export default function DashboardTab({ invoices }: Props) {
             </table>
           </div>
         </div>
-        <div className="rounded-2xl border border-[color:var(--spa-border)] bg-white p-4 text-center shadow-sm">
+        <div className="rounded-2xl border border-[color:var(--spa-border)] bg-white p-4 text-center shadow-lg shadow-slate-100/70">
           <div className="flex flex-col items-center gap-3 text-sm text-slate-800">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--spa-wash)] text-slate-700 shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EEF3F0] text-slate-700 shadow-sm">
               <Sparkles className="h-5 w-5" />
             </div>
             <div className="space-y-2">
-              <p className="text-sm font-semibold text-slate-900">AI Cash Flow Analysis</p>
+              <div className="flex items-center justify-center gap-2">
+                <span className="h-5 w-1 rounded-full bg-[#8FAE9A]" />
+                <p className="text-base font-semibold text-slate-900">AI Cash Flow Analysis</p>
+              </div>
               {summaryLoading && <p>Analysing your cashflow…</p>}
               {summaryError && <p className="text-rose-600">AI summary unavailable. Please try again later.</p>}
               {!summaryLoading && !summaryError && (
@@ -280,7 +289,26 @@ export default function DashboardTab({ invoices }: Props) {
                   </p>
                 </div>
               )}
-              {!summaryLoading && !summaryError && summary && <p className="whitespace-pre-line text-slate-700">{summary}</p>}
+              {!summaryLoading && !summaryError && summary && (
+                <div className="space-y-2">
+                  <p
+                    className="whitespace-pre-line text-slate-700 transition-[max-height]"
+                    style={{
+                      maxHeight: showFullSummary ? "none" : "10.5em",
+                      overflow: showFullSummary ? "visible" : "hidden",
+                    }}
+                  >
+                    {summary}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-sm font-semibold text-[#8FAE9A] hover:text-[#6F8F7B]"
+                    onClick={() => setShowFullSummary((prev) => !prev)}
+                  >
+                    {showFullSummary ? "Show less" : "Show more"}
+                  </button>
+                </div>
+              )}
               {!summaryLoading && !summaryError && !summary && (
                 <p className="text-slate-700">Summary not available yet. Please try again shortly.</p>
               )}
