@@ -250,14 +250,13 @@ export default function App() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--spa-muted)]">{tenantConfig.tenantName}</p>
-              <p className="text-lg font-semibold text-slate-900">{tenantConfig.productName}</p>
+              <span className="rounded-full bg-slate-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#2BB3B1] shadow-sm">
+                Powered by KALYAN AI
+              </span>
+              <p className="text-lg font-semibold text-slate-900 mt-1">{tenantConfig.productName}</p>
             </div>
           </div>
           <div className="hidden items-center gap-4 sm:flex">
-            <span className="rounded-full bg-slate-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#2BB3B1] shadow-sm">
-              Powered by KALYAN AI
-            </span>
             {sessionEmail ? (
               <>
                 <span className="text-sm text-slate-700">{sessionEmail}</span>
@@ -282,7 +281,7 @@ export default function App() {
         </div>
         <div className="border-t border-slate-200 bg-slate-50/60">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-base font-semibold text-slate-700">
               <span className="h-2 w-2 rounded-full bg-[color:var(--spa-accent)]" />
               {company}
             </div>
