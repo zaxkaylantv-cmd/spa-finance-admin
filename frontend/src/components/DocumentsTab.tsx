@@ -1028,7 +1028,7 @@ export default function DocumentsTab({
           </div>
         </div>
         <div>
-          <div className="h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-md space-y-4">
+          <div className="h-full rounded-2xl border border-slate-200 bg-white p-3 shadow-sm space-y-3">
             {emailStatusData.loading && !emailStatusData.data ? (
               <div className="space-y-3">
                 <div className="h-6 w-40 animate-pulse rounded bg-slate-100" />
@@ -1075,11 +1075,11 @@ export default function DocumentsTab({
                     <>
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-lg font-semibold text-slate-900">Email ingestion</p>
-                          <p className="text-sm text-slate-500">Live state from the IonOS inbox.</p>
+                          <p className="text-sm font-semibold text-slate-800">Email ingestion</p>
+                          <p className="text-xs text-slate-500">Key inbox status.</p>
                         </div>
-                        <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm">
-                          <span className={`h-2 w-2 rounded-full ${dotClass} shadow-[0_0_0_6px_rgba(0,0,0,0.04)]`} />
+                        <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                          <span className={`h-2 w-2 rounded-full ${dotClass}`} />
                           {label}
                         </span>
                       </div>
