@@ -238,29 +238,33 @@ export default function CashflowTab({ invoices }: Props) {
           </div>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-start gap-3">
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col items-center gap-3 pt-1 text-center">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EEF3F0] text-[#2BB3B1]">
               <Sparkles className="h-5 w-5" />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <p className="text-base font-semibold text-[#2BB3B1]">AI Cashflow Planning</p>
-              <p className="text-sm text-slate-600">Forward-looking guidance to plan supplier payments week by week.</p>
-              <p className="text-xs text-slate-500">Highlights the busiest weeks and suggests actions to smooth cash out.</p>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Forward-looking guidance to plan supplier payments week by week.
+              </p>
+              <p className="text-xs leading-relaxed text-slate-500">
+                Highlights the busiest weeks and suggests actions to smooth cash out.
+              </p>
             </div>
           </div>
-          <div className="flex items-start gap-2 text-sm text-slate-800">
+          <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
             <AlertCircle className="mt-0.5 h-4 w-4 text-rose-500" />
             <p>
               {highestWeekLabel} is the heaviest week ({currency.format(highestWeek)}). Consider staggering large bills to
               smooth cash out.
             </p>
           </div>
-          <div className="flex items-start gap-2 text-sm text-slate-800">
+          <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
             <Gauge className="mt-0.5 h-4 w-4 text-amber-500" />
             <p>Utilities are tracking 12% higher this month. Renegotiate Northwind Utilities or enable autopay with a cap.</p>
           </div>
-          <div className="flex items-start gap-2 text-sm text-slate-800">
+          <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
             <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
             <p>Use the early-pay discount with Streamline Legal to trim £95 and free cash later in the month.</p>
           </div>
