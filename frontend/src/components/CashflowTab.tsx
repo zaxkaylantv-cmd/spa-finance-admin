@@ -149,7 +149,7 @@ export default function CashflowTab({ invoices }: Props) {
                 return (
                   <div key={point.label} className="flex-1 min-w-[120px]">
                     <div className="flex h-44 items-end justify-center rounded-xl border border-slate-200 bg-white">
-                      <div className="w-10 rounded-lg bg-emerald-300" style={{ height }} />
+                      <div className="w-10 rounded-lg" style={{ height, backgroundColor: "#8FAE9A" }} />
                     </div>
                     <p className="pt-2 text-center text-xs font-semibold text-slate-500">{point.label}</p>
                   </div>
