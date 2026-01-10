@@ -254,12 +254,13 @@ export default function App() {
               <p className="text-lg font-semibold text-slate-900">{tenantConfig.productName}</p>
             </div>
           </div>
-          <div className="hidden items-center gap-3 sm:flex">
+          <div className="hidden items-center gap-4 sm:flex">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E88A6]">Powered by KALYAN AI</span>
             {sessionEmail ? (
               <>
                 <span className="text-sm text-slate-700">{sessionEmail}</span>
                 <button
-                  className="rounded-md border border-slate-200 px-3 py-1 text-sm text-slate-700 hover:bg-slate-100"
+                  className="rounded-md border border-transparent bg-[#8FAE9A] px-3 py-1 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B]"
                   onClick={handleSignOut}
                   type="button"
                 >
