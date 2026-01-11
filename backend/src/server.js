@@ -463,10 +463,58 @@ app.get("/api/export/csv", requireAuth, async (_req, res) => {
         ? "invoices"
         : modeRaw === "receipt"
           ? "receipts"
-          : ["invoices", "receipts", "all"].includes(modeRaw)
-            ? modeRaw
-            : "invoices";
+          : modeRaw === "tip"
+            ? "tips"
+            : ["invoices", "receipts", "all", "tips"].includes(modeRaw)
+              ? modeRaw
+              : "invoices";
     console.log("[csv] mode=", modeNormalized);
+    if (modeNormalized === "tips") {
+      const { data, error } = await supabase
+        .from("tips")
+        .select("*")
+        .eq("archived", false)
+        .order("tip_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.error("CSV export query failed (tips)", error);
+        return res.status(500).json({ error: "Failed to export data" });
+      }
+      const rows = Array.isArray(data) ? data : [];
+      const headers = [
+        "id",
+        "tip_date",
+        "method",
+        "amount",
+        "customer_name",
+        "staff_name",
+        "note",
+        "archived",
+        "created_at",
+        "updated_at",
+      ];
+      const csvRows = [headers.join(",")];
+      rows.forEach((row) => {
+        const record = [
+          row.id ?? "",
+          row.tip_date ?? "",
+          row.method ?? "",
+          row.amount ?? "",
+          row.customer_name ?? "",
+          row.staff_name ?? "",
+          row.note ?? "",
+          typeof row.archived === "undefined" ? "" : row.archived,
+          row.created_at ?? "",
+          row.updated_at ?? "",
+        ];
+        csvRows.push(record.map(escapeCsv).join(","));
+      });
+      const csv = csvRows.join("\n");
+      const today = new Date().toISOString().slice(0, 10);
+      res.setHeader("Content-Type", 'text/csv; charset="utf-8"');
+      res.setHeader("Content-Disposition", `attachment; filename="spa-finance-tips-${today}.csv"`);
+      return res.status(200).send(csv);
+    }
     const docTypes = modeNormalized === "all" ? ["invoice", "receipt"] : [modeNormalized.slice(0, -1)];
 
     const { data, error } = await supabase

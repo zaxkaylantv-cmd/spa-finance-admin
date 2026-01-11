@@ -7,10 +7,11 @@ type Props = {
 };
 
 export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKeyChange }: Props) {
-  const exportOptions: { value: "invoices" | "receipts" | "all"; label: string }[] = [
+  const exportOptions: { value: "invoices" | "receipts" | "all" | "tips"; label: string }[] = [
     { value: "invoices", label: "Invoices (recommended)" },
     { value: "receipts", label: "Receipts" },
     { value: "all", label: "All documents" },
+    { value: "tips", label: "Tips & Gratuities" },
   ];
 
   const [emailConnected, setEmailConnected] = useState(true);
@@ -22,7 +23,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
-  const [exportMode, setExportMode] = useState<"invoices" | "receipts" | "all">("invoices");
+  const [exportMode, setExportMode] = useState<"invoices" | "receipts" | "all" | "tips">("invoices");
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
@@ -184,7 +185,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
             <select
               className="w-full rounded-lg border border-slate-200 px-3 py-2"
               value={exportMode}
-              onChange={(e) => setExportMode(e.target.value as "invoices" | "receipts" | "all")}
+              onChange={(e) => setExportMode(e.target.value as "invoices" | "receipts" | "all" | "tips")}
             >
               {exportOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
