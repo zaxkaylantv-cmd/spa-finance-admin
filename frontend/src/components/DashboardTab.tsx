@@ -38,7 +38,6 @@ type CashflowSummaryResponse = {
 };
 
 export default function DashboardTab({ invoices }: Props) {
-  const [showFullSummary, setShowFullSummary] = useState(false);
   const [summary, setSummary] = useState<string>("");
   const [summaryLoading, setSummaryLoading] = useState<boolean>(true);
   const [summaryError, setSummaryError] = useState<boolean>(false);
@@ -325,22 +324,7 @@ export default function DashboardTab({ invoices }: Props) {
               )}
               {!summaryLoading && !summaryError && summary && (
                 <div className="space-y-2">
-                  <p
-                    className="whitespace-pre-line text-slate-700 transition-[max-height]"
-                    style={{
-                      maxHeight: showFullSummary ? "none" : "10.5em",
-                      overflow: showFullSummary ? "visible" : "hidden",
-                    }}
-                  >
-                    {summary}
-                  </p>
-                  <button
-                    type="button"
-                    className="text-sm font-semibold text-[#8FAE9A] hover:text-[#6F8F7B]"
-                    onClick={() => setShowFullSummary((prev) => !prev)}
-                  >
-                    {showFullSummary ? "Show less" : "Show more"}
-                  </button>
+                  <p className="whitespace-pre-line text-slate-700">{summary}</p>
                 </div>
               )}
               {!summaryLoading && !summaryError && !summary && (
