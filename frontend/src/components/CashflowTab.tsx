@@ -76,10 +76,8 @@ export default function CashflowTab({ invoices }: Props) {
     [weeklyBuckets],
   );
 
-  const visibleWeeks = useMemo(
-    () => (showAllWeeks ? weekList : weekList.slice(0, 2)),
-    [showAllWeeks, weekList],
-  );
+  const previewWeeks = useMemo(() => weekList.slice(0, 2), [weekList]);
+  const visibleWeeks = useMemo(() => (showAllWeeks ? weekList : previewWeeks), [showAllWeeks, previewWeeks, weekList]);
 
   const outgoingTrend = weekList.map((w) => ({ label: w.label, amount: w.total }));
   const maxOutgoing = outgoingTrend.length ? Math.max(...outgoingTrend.map((item) => item.amount)) : 1;
@@ -225,13 +223,13 @@ export default function CashflowTab({ invoices }: Props) {
               </div>
             ))}
             {weekList.length > 2 && (
-              <div className="flex justify-center">
+              <div className="flex justify-end pt-1">
                 <button
                   type="button"
-                  className="mt-2 text-sm font-medium text-slate-700 hover:underline"
+                  className="text-sm font-semibold text-[#2BB3B1] hover:text-[#229089]"
                   onClick={() => setShowAllWeeks((prev) => !prev)}
                 >
-                  {showAllWeeks ? "Show fewer weeks" : "Show all weeks"}
+                  {showAllWeeks ? "Hide details" : "Show details"}
                 </button>
               </div>
             )}
