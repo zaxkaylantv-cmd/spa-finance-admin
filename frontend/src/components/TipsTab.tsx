@@ -250,7 +250,7 @@ export default function TipsTab({ appKey }: Props) {
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <button
           type="submit"
-          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow disabled:opacity-60 hover:opacity-90"
+          className="rounded-md border border-transparent bg-[#8FAE9A] px-3 py-1 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6F8F7B]"
           disabled={loading}
         >
           {loading ? "Adding…" : "Add tip"}
