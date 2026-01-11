@@ -271,7 +271,7 @@ export default function App() {
             )}
           </div>
           <div className="flex items-center gap-3">
-            <span className="rounded-full bg-cyan-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white shadow-sm">
+            <span className="rounded-full bg-[#2BB3B1] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white shadow-sm">
               Powered by KALYAN AI
             </span>
           </div>
