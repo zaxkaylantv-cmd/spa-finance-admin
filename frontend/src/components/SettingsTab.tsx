@@ -24,6 +24,8 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
   const [exportMode, setExportMode] = useState<"invoices" | "receipts" | "all" | "tips">("invoices");
+  const selectedExportLabel =
+    exportOptions.find((opt) => opt.value === exportMode)?.label || "Invoices (recommended)";
 
   const toggleEmailStatus = () => {
     setEmailConnected((prev) => !prev);
@@ -178,7 +180,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 lg:col-span-2">
           <p className="text-lg font-semibold text-slate-900">Data</p>
           <p className="text-sm text-slate-600">
-            Exports invoices and receipts as a CSV for your accountant.
+            You are exporting: {selectedExportLabel} (CSV)
           </p>
           <label className="space-y-1 text-sm">
             <span className="text-slate-600">Export type</span>
@@ -200,7 +202,7 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
             onClick={() => void handleExportCsv()}
             disabled={exporting}
           >
-            {exporting ? "Preparing CSV…" : "Export invoices & receipts (CSV)"}
+            {exporting ? "Preparing CSV…" : "Export CSV"}
           </button>
           {exportSuccess && <p className="text-sm text-emerald-700">Downloaded.</p>}
           {exportError && <p className="text-sm text-rose-600">{exportError}</p>}
