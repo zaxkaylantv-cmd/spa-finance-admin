@@ -296,7 +296,7 @@ export default function TipsTab({ appKey }: Props) {
                         });
                         if (!res.ok) {
                           if (res.status === 401) {
-                            setError("Unauthorised — please set the App key in Settings.");
+                            setError("Unauthorised — please sign in again.");
                           } else {
                             setError("Could not archive tip.");
                           }
