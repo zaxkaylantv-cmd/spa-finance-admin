@@ -112,7 +112,6 @@ export default function TipsTab({ appKey }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm uppercase tracking-[0.16em] text-[color:var(--spa-muted)]">Tips &amp; Gratuities</p>
         <h1 className="text-3xl font-bold text-slate-900">Tips &amp; Gratuities</h1>
         <p className="text-slate-500">Record tips and gratuities with a simple audit trail.</p>
       </div>
