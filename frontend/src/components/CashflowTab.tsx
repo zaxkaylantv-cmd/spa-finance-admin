@@ -251,21 +251,31 @@ export default function CashflowTab({ invoices }: Props) {
               </p>
             </div>
           </div>
-          <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
-            <AlertCircle className="mt-0.5 h-4 w-4 text-rose-500" />
-            <p>
-              {highestWeekLabel} is the heaviest week ({currency.format(highestWeek)}). Consider staggering large bills to
-              smooth cash out.
+          {invoices.length === 0 ? (
+            <p className="text-sm leading-relaxed text-slate-700">
+              Cashflow planning insights will appear once invoices are added.
             </p>
-          </div>
-          <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
-            <Gauge className="mt-0.5 h-4 w-4 text-amber-500" />
-            <p>Utilities are tracking 12% higher this month. Renegotiate Northwind Utilities or enable autopay with a cap.</p>
-          </div>
-          <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
-            <p>Use the early-pay discount with Streamline Legal to trim £95 and free cash later in the month.</p>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 text-rose-500" />
+                <p>
+                  {highestWeekLabel} is the heaviest week ({currency.format(highestWeek)}). Consider staggering large bills to
+                  smooth cash out.
+                </p>
+              </div>
+              <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
+                <Gauge className="mt-0.5 h-4 w-4 text-amber-500" />
+                <p>
+                  Utilities are tracking 12% higher this month. Renegotiate Northwind Utilities or enable autopay with a cap.
+                </p>
+              </div>
+              <div className="flex items-start gap-2 text-sm leading-relaxed text-slate-700">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-500" />
+                <p>Use the early-pay discount with Streamline Legal to trim £95 and free cash later in the month.</p>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
