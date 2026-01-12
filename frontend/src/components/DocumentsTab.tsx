@@ -4,6 +4,7 @@ import type { Invoice, InvoiceSource, InvoiceStatus } from "../data/mockInvoices
 import type { DateRangeFilter } from "../utils/dateRangeFilter";
 import { isInvoiceInDateRange, formatRangeLabel } from "../utils/dateRangeFilter";
 import { apiUrl, getApiBase, tryFetchApi } from "../utils/api";
+void apiUrl;
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const formatCurrency = (value: any) => {
@@ -204,6 +205,10 @@ export default function DocumentsTab({
   const [autoApprovalStatus, setAutoApprovalStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraftStatus, setEmailDraftStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
+  void aiActions;
+  void aiLoading;
+  void setAutoApprovalStatus;
+  void setEmailDraft;
   const [notesValue, setNotesValue] = useState("");
   const [notesSavedValue, setNotesSavedValue] = useState("");
   const [editValues, setEditValues] = useState({
@@ -564,6 +569,7 @@ export default function DocumentsTab({
   const apiBase = getApiBase();
 
   const formatAmountSafe = (value: any) => formatCurrency(value);
+  void formatAmountSafe;
 
   const handleDownloadFile = async (fileId?: number | null, fileRef?: string | null) => {
     const ref = fileRef || null;
@@ -661,6 +667,7 @@ export default function DocumentsTab({
       setAiLoading(false);
     }
   };
+  void fetchAiActions;
 
   const ensureAiReady = () => {
     if (!aiReady) {
@@ -669,6 +676,7 @@ export default function DocumentsTab({
     }
     return true;
   };
+  void ensureAiReady;
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
@@ -1616,8 +1624,8 @@ export default function DocumentsTab({
                     <span className="text-sm font-semibold">{selectedDoc.invoiceNumber}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2">
-                    <span>Confidence</span>
-                    <span className="text-sm font-semibold">92%</span>
+                    <span>AI confidence (coming soon)</span>
+                    <span className="text-sm font-semibold">Coming soon</span>
                   </div>
                 </div>
               </div>
@@ -1689,7 +1697,12 @@ export default function DocumentsTab({
                 <div className="mt-3 space-y-3 text-sm text-slate-700">
                   {hasSupplierHistory && (
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 shadow-[0_6px_18px_rgba(16,185,129,0.15)]">
-                      <p className="font-semibold text-emerald-800">Auto-approval suggestion</p>
+                      <p className="font-semibold text-emerald-800">
+                        Auto-approval suggestion{" "}
+                        <span className="ml-2 rounded-full bg-emerald-700 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                          Preview
+                        </span>
+                      </p>
                       {shouldSuggestAutoApprove ? (
                         <p className="mt-1 text-emerald-900">
                           Invoices from {selectedDoc.supplier} are regular and within a typical range. Consider
@@ -1704,58 +1717,9 @@ export default function DocumentsTab({
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60"
-                          disabled={autoApprovalStatus === "loading" || aiLoading}
-                          onClick={async () => {
-                            setAutoApprovalStatus("loading");
-                            setAiMessage(null);
-                            if (!ensureAiReady()) {
-                              setAutoApprovalStatus("error");
-                              return;
-                            }
-                            const actions = aiActions || (await fetchAiActions());
-                            if (!actions) {
-                              setAutoApprovalStatus("error");
-                              return;
-                            }
-                            if (!actions.autoApproval || !selectedDoc.supplier) {
-                              setAiMessage("No auto-approval suggestion available yet.");
-                              setAutoApprovalStatus("error");
-                              return;
-                            }
-                            const limit = Number(actions.autoApproval.suggestedMonthlyLimit);
-                            if (!Number.isFinite(limit) || limit <= 0) {
-                              setAiMessage("Suggested limit not available.");
-                              setAutoApprovalStatus("error");
-                              return;
-                            }
-                            try {
-                              const res = await fetch(apiUrl("/api/auto-approval-rules"), {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  ...(appKey ? { "X-APP-KEY": appKey } : {}),
-                                },
-                                body: JSON.stringify({ supplier: selectedDoc.supplier, monthly_limit: limit }),
-                              });
-                              if (!res.ok) {
-                                setAiMessage(
-                                  res.status === 401
-                                    ? "App key required to create auto-approval rule."
-                                    : "Could not save auto-approval rule.",
-                                );
-                                setAutoApprovalStatus("error");
-                                return;
-                              }
-                              setAiMessage("Auto-approval rule created.");
-                              setAutoApprovalStatus("success");
-                            } catch (err) {
-                              console.error("Auto-approval save failed", err);
-                              setAiMessage("Could not save auto-approval rule.");
-                              setAutoApprovalStatus("error");
-                            }
-                          }}
+                          disabled
                         >
-                          {autoApprovalStatus === "loading" ? "Creating…" : "Create auto-approval rule"}
+                          Coming soon
                         </button>
                         <button
                           className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
@@ -1764,13 +1728,7 @@ export default function DocumentsTab({
                           Dismiss
                         </button>
                         {autoApprovalStatus !== "idle" && (
-                          <p className="text-xs text-slate-700">
-                            {autoApprovalStatus === "loading"
-                              ? "Creating auto-approval rule…"
-                              : autoApprovalStatus === "success"
-                                ? "Auto-approval rule created."
-                                : aiMessage || "Could not create auto-approval rule."}
-                          </p>
+                          <p className="text-xs text-slate-700">Preview only — we’ll enable this after the pilot.</p>
                         )}
                       </div>
                     </div>
@@ -1779,7 +1737,12 @@ export default function DocumentsTab({
                   <div className="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 shadow-[0_6px_18px_rgba(8,145,178,0.15)]">
                     {negotiationInsight.shouldSuggest ? (
                       <>
-                        <p className="font-semibold text-cyan-800">Cost optimisation opportunity</p>
+                        <p className="font-semibold text-cyan-800">
+                          Cost optimisation opportunity{" "}
+                          <span className="ml-2 rounded-full bg-cyan-700 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                            Preview
+                          </span>
+                        </p>
                         <p className="mt-1 text-cyan-900">
                           Your average spend with {selectedDoc.supplier} is up about{" "}
                           {Math.round(negotiationInsight.increasePct)}% compared with earlier invoices. It may be worth
@@ -1796,46 +1759,12 @@ export default function DocumentsTab({
                     )}
                     <button
                       className="mt-2 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-cyan-700 disabled:opacity-60"
-                      disabled={emailDraftStatus === "loading" || aiLoading}
-                      onClick={async () => {
-                        setAiMessage(null);
-                        setEmailDraftStatus("loading");
-                        setEmailDraft(null);
-                        if (!ensureAiReady()) {
-                          setEmailDraftStatus("error");
-                          return;
-                        }
-                        const actions = aiActions || (await fetchAiActions());
-                        if (!actions) {
-                          setEmailDraftStatus("error");
-                          return;
-                        }
-                        const supplier = selectedDoc.supplier || "your supplier";
-                        const amount = formatAmountSafe(selectedDoc.amount);
-                        const due = formatInvoiceDate(getDueDate(selectedDoc));
-                        const invoiceNumber = selectedDoc.invoiceNumber || (selectedDoc as any).invoice_number || "the invoice";
-                        const subject =
-                          actions?.supplierEmail?.subject ||
-                          `Invoice follow-up regarding ${invoiceNumber} — ${supplier}`;
-                        const body =
-                          actions?.supplierEmail?.body ||
-                          [
-                            `Hello ${supplier},`,
-                            "",
-                            `I hope you are well. We are reviewing invoice ${invoiceNumber} dated ${formatInvoiceDate(getIssueDate(selectedDoc))} for ${amount} (due ${due || "soon"}).`,
-                            "Please confirm the payment details and let us know if any adjustments are required to the amount, due date, or remittance instructions.",
-                            "",
-                            "Thank you for your help.",
-                            "The Spa by Kaajal finance team",
-                          ].join("\n");
-                        setEmailDraft({ subject, body });
-                        setEmailDraftStatus("success");
-                      }}
+                      disabled
                     >
-                      {emailDraftStatus === "loading" ? "Creating…" : "Create email draft"}
+                      Coming soon
                     </button>
                     {emailDraftStatus === "error" && (
-                      <p className="mt-1 text-xs text-rose-600">Unable to generate email draft right now.</p>
+                      <p className="mt-1 text-xs text-slate-700">Preview only — we’ll enable this after the pilot.</p>
                     )}
                     {emailDraft && (
                       <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
@@ -1870,7 +1799,7 @@ export default function DocumentsTab({
                     )}
                   </div>
                 </div>
-                {aiMessage && <p className="mt-2 text-xs text-slate-700">{aiMessage}</p>}
+                {aiMessage && <p className="mt-2 text-xs text-slate-700">Preview only — we’ll enable this after the pilot.</p>}
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
