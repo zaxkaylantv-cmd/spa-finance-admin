@@ -205,17 +205,16 @@ export default function TipsTab({ appKey }: Props) {
                       return;
                     }
                     try {
-                      const res = await fetch(apiUrl("/api/staff"), {
+                      const res = await tryFetchApi("/api/staff", {
                         method: "POST",
                         headers: {
                           "Content-Type": "application/json",
-                          ...(appKey ? { "X-APP-KEY": appKey } : {}),
                         },
                         body: JSON.stringify({ name: trimmed }),
                       });
                       if (!res.ok) {
                         if (res.status === 401) {
-                          setStaffError("Unauthorised — please set the App key in Settings.");
+                          setStaffError("Unauthorised — please sign in again.");
                         } else {
                           setStaffError("Could not add staff (might already exist).");
                         }
