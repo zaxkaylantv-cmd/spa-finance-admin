@@ -585,6 +585,18 @@ app.get("/api/export/csv", requireAuth, async (_req, res) => {
 app.get("/api/cashflow-summary", async (_req, res) => {
   try {
     const invoices = await getInvoices();
+    if (!invoices || invoices.length === 0) {
+      return res.json({
+        metrics: {
+          totalOutstanding: 0,
+          totalPaid: 0,
+          countOverdue: 0,
+          countDueSoon: 0,
+          unknownAmountCount: 0,
+        },
+        summary: "No invoices yet. Cashflow insights will appear once data starts coming in.",
+      });
+    }
 
     const getInvoiceDueDate = (row) => {
       const raw = row.dueDate || row.due_date;
