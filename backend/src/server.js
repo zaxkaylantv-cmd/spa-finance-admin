@@ -1093,9 +1093,21 @@ app.patch("/api/invoices/:id", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "No valid fields provided" });
     }
 
-    const updated = await updateInvoice(id, payload);
-    if (!updated) return res.status(404).json({ error: "Invoice not found" });
-    res.json(updated);
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("invoices")
+      .update({ ...payload, updated_at: now })
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to update invoice", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!data) return res.status(404).json({ error: "Invoice not found" });
+    res.json(data);
   } catch (err) {
     console.error("Failed to update invoice", err);
     res.status(500).json({ error: "Internal server error" });
