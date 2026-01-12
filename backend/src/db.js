@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
+const { getSupabaseAdminClient } = require("./supabaseClient");
 
 const dbPath = path.join(__dirname, "..", "data", "cashflow.sqlite");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -367,17 +368,18 @@ db.serialize(() => {
   });
 });
 
-const getInvoices = ({ includeArchived = false } = {}) =>
-  new Promise((resolve, reject) => {
-    let sql = "SELECT *, COALESCE(CAST(archived AS INTEGER), 0) AS archived FROM invoices";
-    if (!includeArchived) {
-      sql += " WHERE COALESCE(CAST(archived AS INTEGER), 0) = 0";
-    }
-    db.all(sql, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
-    });
+const getInvoices = ({ includeArchived = false } = {}) => {
+  const supabase = getSupabaseAdminClient();
+  if (!supabase) return Promise.resolve([]);
+  let query = supabase.from("invoices").select("*");
+  if (!includeArchived) {
+    query = query.eq("archived", false);
+  }
+  return query.order("created_at", { ascending: false }).then(({ data, error }) => {
+    if (error) throw error;
+    return data || [];
   });
+};
 
 const findInvoiceById = (id) =>
   new Promise((resolve, reject) => {
