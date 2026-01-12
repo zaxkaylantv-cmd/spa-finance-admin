@@ -585,7 +585,8 @@ app.get("/api/export/csv", requireAuth, async (_req, res) => {
 app.get("/api/cashflow-summary", async (_req, res) => {
   try {
     const invoices = await getInvoices();
-    if (!invoices || invoices.length === 0) {
+    const invoiceCount = Array.isArray(invoices) ? invoices.length : 0;
+    if (!invoices || invoiceCount === 0) {
       return res.json({
         metrics: {
           totalOutstanding: 0,
