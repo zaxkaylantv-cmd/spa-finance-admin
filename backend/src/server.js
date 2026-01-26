@@ -262,7 +262,14 @@ const maybeStartEmailWorker = () => {
 };
 maybeStartEmailWorker();
 
-app.use("/api", requireAuth);
+app.use("/api", (req, res, next) => {
+  const redirectMode =
+    req.method === "GET" &&
+    req.path === "/files/download-by-ref" &&
+    String(req.query.redirect || "") === "1";
+  if (redirectMode) return next();
+  return requireAuth(req, res, next);
+});
 
 app.get("/api/google/drive/status", async (_req, res) => {
   try {
