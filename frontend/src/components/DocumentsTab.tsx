@@ -1757,25 +1757,19 @@ export default function DocumentsTab({
                     <FileText className="h-4 w-4 text-cyan-600" />
                     <span>View or download original file</span>
                   </div>
-                  {downloadHref ? (
-                    <a
-                      className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 hover:bg-cyan-50"
-                      href={downloadHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Opens in a new tab to satisfy iOS Safari's direct navigation requirement."
-                    >
-                      Open
-                    </a>
-                  ) : (
-                    <button
-                      className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 opacity-60"
-                      disabled
-                      title="No file attached"
-                    >
-                      No file attached
-                    </button>
-                  )}
+                  <button
+                    className={`rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 ${downloadHref ? "hover:bg-cyan-50" : "opacity-60"}`}
+                    disabled={!downloadHref}
+                    onClick={() => {
+                      if (downloadHref) {
+                        window.location.href = downloadHref;
+                      }
+                    }}
+                    title={downloadHref ? "Opens the document" : "No file attached"}
+                    type="button"
+                  >
+                    {downloadHref ? "Open" : "No file attached"}
+                  </button>
                 </div>
                 {fileMessage && <p className="mt-2 text-sm text-slate-600">{fileMessage}</p>}
               </div>
