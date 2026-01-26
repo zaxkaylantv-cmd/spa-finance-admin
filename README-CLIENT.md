@@ -80,6 +80,10 @@ This means your data is not accessible anonymously and activity is accountable.
 - Google Drive is the **primary source of truth** for documents.
 - The app only stores secure links so files can be opened easily.
 
+**Opening documents on mobile**
+- When you tap **Open**, the system takes you directly to the file in Google Drive.
+- This is designed to work reliably on iPhone and iPad, where mobile browsers require a direct link to open documents safely.
+
 **Business data (amounts, dates, reports)**
 - All operational data is stored securely in **Supabase**.
 - This includes:
@@ -129,4 +133,3 @@ This reduces the risk of double payments and admin errors.
 - It does **not** replace your accountant.
 
 Think of it as a clear, helpful summary to support decisions.
-
