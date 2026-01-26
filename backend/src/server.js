@@ -902,12 +902,29 @@ app.get("/api/files/:id/download", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/files/download-by-ref", requireAuth, async (req, res) => {
+app.get("/api/files/download-by-ref", async (req, res) => {
   try {
-    const ref = typeof req.query.ref === "string" ? req.query.ref : "";
     const redirectMode = String(req.query.redirect || "") === "1";
-    if (!ref) {
-      return res.status(400).json({ error: "ref query parameter is required" });
+    const ref = typeof req.query.ref === "string" ? req.query.ref : "";
+    if (redirectMode) {
+      if (!ref) {
+        return res.status(400).json({ error: "ref query parameter is required" });
+      }
+      if (!ref.startsWith("gdrive:")) {
+        return res.status(400).json({ error: "Invalid redirect ref" });
+      }
+    } else {
+      let authorized = false;
+      await new Promise((resolve) => {
+        requireAuth(req, res, () => {
+          authorized = true;
+          resolve(null);
+        });
+      });
+      if (!authorized) return; // requireAuth already responded
+      if (!ref) {
+        return res.status(400).json({ error: "ref query parameter is required" });
+      }
     }
     const supabase = getSupabaseAdminClient();
     if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
@@ -928,7 +945,7 @@ app.get("/api/files/download-by-ref", requireAuth, async (req, res) => {
         const trimmed = rawLink.trim();
         try {
           const parsed = new URL(trimmed);
-          if (parsed.protocol !== "https:") {
+          if (parsed.protocol !== "https:" || parsed.hostname !== "drive.google.com" || !trimmed.startsWith("https://drive.google.com/")) {
             throw new Error("invalid_protocol");
           }
           return res.redirect(302, parsed.toString());
@@ -937,6 +954,9 @@ app.get("/api/files/download-by-ref", requireAuth, async (req, res) => {
         }
       }
       return res.json({ link: rawLink, drive_file_id: data.drive_file_id || data.file_ref });
+    }
+    if (redirectMode) {
+      return res.status(400).json({ error: "Invalid redirect ref" });
     }
     return streamFileRecord({ file_ref: data.file_ref, mime_type: data.mime_type, original_filename: data.original_filename }, res);
   } catch (err) {
