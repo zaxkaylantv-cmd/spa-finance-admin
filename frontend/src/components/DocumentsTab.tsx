@@ -563,74 +563,16 @@ export default function DocumentsTab({
     () => fileRecords.length > 0 || Boolean(originalFileRef),
     [fileRecords.length, originalFileRef],
   );
-  const primaryFileId = fileRecords[0]?.id ?? null;
   const primaryFileRef = fileRecords[0]?.file_ref ?? originalFileRef ?? null;
+  const downloadHref = useMemo(() => {
+    if (!primaryFileRef) return null;
+    return `/api/files/download-by-ref?ref=${encodeURIComponent(primaryFileRef)}&redirect=1`;
+  }, [primaryFileRef]);
 
   const apiBase = getApiBase();
 
   const formatAmountSafe = (value: any) => formatCurrency(value);
   void formatAmountSafe;
-
-  const handleDownloadFile = async (fileId?: number | null, fileRef?: string | null) => {
-    const ref = fileRef || null;
-    if (!fileId && !ref) {
-      setFileMessage("No file attached");
-      return;
-    }
-    try {
-      if (ref && ref.startsWith("http")) {
-        window.open(ref, "_blank");
-        return;
-      }
-      if (ref && ref.startsWith("gdrive:")) {
-        const res = await tryFetchApi(`/api/files/download-by-ref?ref=${encodeURIComponent(ref)}`);
-        if (!res.ok) {
-          setAiMessage("Unable to download file.");
-          return;
-        }
-        const data = await res.json().catch(() => null);
-        const link = data?.link;
-        if (link) {
-          window.open(link, "_blank", "noopener,noreferrer");
-        } else {
-          setAiMessage("Unable to download file.");
-        }
-        return;
-      }
-      const targetPath = fileId
-        ? `/api/files/${fileId}/download`
-        : ref
-          ? `/api/files/download-by-ref?ref=${encodeURIComponent(ref)}`
-          : null;
-      if (!targetPath) {
-        setFileMessage("No file attached");
-        return;
-      }
-      const res = await tryFetchApi(targetPath, {
-        headers: {
-          ...(appKey ? { "X-APP-KEY": appKey } : {}),
-        },
-      });
-      if (res.status === 401) {
-        setFileMessage("App key required to open files. Add it in Settings.");
-        return;
-      }
-      if (res.status === 501) {
-        setFileMessage("Google Drive files coming soon.");
-        return;
-      }
-      if (!res.ok) {
-        setFileMessage("Unable to download file.");
-        return;
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, "_blank");
-    } catch (err) {
-      console.error("File download failed", err);
-      setFileMessage("Unable to download file.");
-    }
-  };
 
   const fetchAiActions = async () => {
     if (!selectedDoc) return null;
@@ -649,7 +591,7 @@ export default function DocumentsTab({
         },
       });
       if (res.status === 501) {
-        setAiMessage("AI not configured (OPENAI_API_KEY missing).");
+        setAiMessage("AI temporarily unavailable. Please try again later.");
         return null;
       }
       if (!res.ok) {
@@ -1084,6 +1026,9 @@ export default function DocumentsTab({
                         <div>
                           <p className="text-sm font-semibold text-slate-800">Email ingestion</p>
                           <p className="text-xs text-slate-500">Key inbox status.</p>
+                          <p className="text-xs text-slate-500">
+                            Auto-import works for emails with PDF attachments. If an email only contains a link (no PDF), upload the invoice manually.
+                          </p>
                         </div>
                         <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
                           <span className={`h-2 w-2 rounded-full ${dotClass}`} />
@@ -1812,14 +1757,25 @@ export default function DocumentsTab({
                     <FileText className="h-4 w-4 text-cyan-600" />
                     <span>View or download original file</span>
                   </div>
-                  <button
-                    className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 hover:bg-cyan-50 disabled:opacity-60"
-                    disabled={!hasOriginalFile}
-                    onClick={() => handleDownloadFile(primaryFileId, primaryFileRef)}
-                    title={!hasOriginalFile ? "No file attached" : undefined}
-                  >
-                    {hasOriginalFile ? "Open" : "No file attached"}
-                  </button>
+                  {downloadHref ? (
+                    <a
+                      className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 hover:bg-cyan-50"
+                      href={downloadHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Opens in a new tab to satisfy iOS Safari's direct navigation requirement."
+                    >
+                      Open
+                    </a>
+                  ) : (
+                    <button
+                      className="rounded-lg border border-cyan-200 bg-white px-3 py-1 text-sm font-semibold text-cyan-700 opacity-60"
+                      disabled
+                      title="No file attached"
+                    >
+                      No file attached
+                    </button>
+                  )}
                 </div>
                 {fileMessage && <p className="mt-2 text-sm text-slate-600">{fileMessage}</p>}
               </div>

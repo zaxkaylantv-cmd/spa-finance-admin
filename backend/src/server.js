@@ -905,6 +905,7 @@ app.get("/api/files/:id/download", requireAuth, async (req, res) => {
 app.get("/api/files/download-by-ref", requireAuth, async (req, res) => {
   try {
     const ref = typeof req.query.ref === "string" ? req.query.ref : "";
+    const redirectMode = String(req.query.redirect || "") === "1";
     if (!ref) {
       return res.status(400).json({ error: "ref query parameter is required" });
     }
@@ -921,7 +922,21 @@ app.get("/api/files/download-by-ref", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "File not found" });
     }
     if (data.drive_file_id || (data.file_ref || "").startsWith("gdrive:")) {
-      return res.json({ link: data.web_view_link, drive_file_id: data.drive_file_id || data.file_ref });
+      const rawLink = typeof data.web_view_link === "string" ? data.web_view_link : "";
+      if (redirectMode) {
+        // iOS Safari requires a real navigation (302) for Drive links; redirect=1 triggers that path.
+        const trimmed = rawLink.trim();
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.protocol !== "https:") {
+            throw new Error("invalid_protocol");
+          }
+          return res.redirect(302, parsed.toString());
+        } catch (_err) {
+          return res.status(400).json({ error: "Invalid redirect link" });
+        }
+      }
+      return res.json({ link: rawLink, drive_file_id: data.drive_file_id || data.file_ref });
     }
     return streamFileRecord({ file_ref: data.file_ref, mime_type: data.mime_type, original_filename: data.original_filename }, res);
   } catch (err) {

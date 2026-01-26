@@ -16,3 +16,7 @@ _wip-*.patch
 backend/.env
 frontend/.env
 *.env.backup-*
+
+# Local backups / artefacts
+backend/backups/
+frontend/.env.bak-*
