@@ -16,8 +16,8 @@ const runIngestCycle = async ({ supabaseAdmin, mailbox }) => {
   const batch = await processMailboxBatch({
     supabaseAdmin: supabase,
     mailbox,
-    scan_limit: 100,
-    max_messages: 2,
+    scan_limit: Number(process.env.EMAIL_IMAP_UID_SCAN_LIMIT || 100),
+    max_messages: Number(process.env.EMAIL_INGEST_MAX_MESSAGES || 10),
     max_wall_ms: 300000,
     cursor_uid: state_before.last_uid || null,
   });

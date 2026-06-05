@@ -670,6 +670,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
 
 const collectAttachmentParts = (node, acc = [], pathPrefix = "") => {
   if (!node) return acc;
+  const partID = node.part || node.partID || pathPrefix;
   const mime = node.type && node.subtype ? `${node.type}/${node.subtype}` : node.type || "";
   const disposition = node.disposition?.type ? node.disposition.type.toLowerCase() : "";
   const isLeaf = !Array.isArray(node.childNodes) || node.childNodes.length === 0;
@@ -680,16 +681,16 @@ const collectAttachmentParts = (node, acc = [], pathPrefix = "") => {
   const isAttachmentByMime = mime && (mime === "application/pdf" || mime.startsWith("image/"));
   const isInlineCandidate = disposition === "inline" && (hasPdfExt || hasImageExt);
   const isAttachment = (disposition === "attachment" || isLeaf || isInlineCandidate) && (isAttachmentByMime || hasPdfExt || hasImageExt);
-  if (isAttachment && node.partID) {
+  if (isAttachment && partID) {
     acc.push({
-      partID: node.partID,
+      partID,
       mime,
       filename,
       size: node.size || null,
     });
   }
   if (Array.isArray(node.childNodes)) {
-    node.childNodes.forEach((child) => collectAttachmentParts(child, acc, pathPrefix));
+    node.childNodes.forEach((child, idx) => collectAttachmentParts(child, acc, pathPrefix ? `${pathPrefix}.${idx + 1}` : `${idx + 1}`));
   }
   return acc;
 };
@@ -727,43 +728,31 @@ const choosePreferredPart = (parts) => {
 
 const collectPartsSummary = (node, acc = [], path = "1") => {
   if (!node) return acc;
+  const partPath = node.part || path;
   const mime = node.type && node.subtype ? `${node.type}/${node.subtype}` : node.type || undefined;
   const disposition_type = node.disposition?.type || null;
   const filename = node.disposition?.params?.filename || node.parameters?.name || node.filename || "";
   const size = node.size || null;
   const is_leaf = !Array.isArray(node.childNodes) || node.childNodes.length === 0;
-  acc.push({ path, mime, disposition_type, filename, size, is_leaf });
+  acc.push({ path: partPath, mime, disposition_type, filename, size, is_leaf });
   if (Array.isArray(node.childNodes)) {
     node.childNodes.forEach((child, idx) => {
-      collectPartsSummary(child, acc, `${path}.${idx + 1}`);
+      collectPartsSummary(child, acc, path ? `${path}.${idx + 1}` : `${idx + 1}`);
     });
   }
   return acc;
 };
 
 const downloadPartToBuffer = async ({ client, uid, partID }) => {
-  const downloadRes = await client.download(uid, partID, { uid: true, maxBytes: MAX_ATTACHMENT_BYTES });
-  const stream = downloadRes.content;
-  const chunks = [];
-  try {
-    const buf = await withTimeout(
-      new Promise((resolve, reject) => {
-        stream.on("data", (chunk) => chunks.push(chunk));
-        stream.once("error", reject);
-        stream.once("end", () => resolve(Buffer.concat(chunks)));
-      }),
-      FETCH_SOURCE_TIMEOUT_MS,
-      "IMAP attachment download"
-    );
-    return buf;
-  } catch (err) {
-    try {
-      stream.destroy();
-    } catch (_) {
-      /* noop */
-    }
-    throw err;
+  const msg = await client.fetchOne(uid, { uid: true, bodyParts: [partID] });
+  if (!msg || !msg.bodyParts || !msg.bodyParts.get(partID)) {
+    throw new Error("no_content_for_part:" + partID);
   }
+  const buf = msg.bodyParts.get(partID);
+  if (MAX_ATTACHMENT_BYTES && buf.length > MAX_ATTACHMENT_BYTES) {
+    throw new Error("attachment_too_large:" + partID);
+  }
+  return buf;
 };
 
 const processMailboxBatch = async ({
@@ -798,15 +787,14 @@ const processMailboxBatch = async ({
     const uidsAsc = (allUids || []).slice(-Math.max(scanCap, 0));
     let ordered = [];
     if (cursor_uid !== null && typeof cursor_uid !== "undefined") {
-      ordered = uidsAsc.filter((u) => u > cursor_uid).sort((a, b) => b - a).slice(0, scanCap);
+      ordered = uidsAsc.filter((u) => u > cursor_uid).sort((a, b) => a - b).slice(0, scanCap);
     } else {
-      ordered = [...uidsAsc].sort((a, b) => b - a);
+      ordered = [...uidsAsc].sort((a, b) => a - b);
     }
     for (const uid of ordered) {
       if (Date.now() - start > max_wall_ms) break;
       if (result.attempted >= max_messages) break;
       result.attempted += 1;
-      result.new_last_uid = result.new_last_uid ? Math.max(result.new_last_uid, uid) : uid; // tracks highest attempted UID
       try {
         console.log(`[email][batch] uid=${uid} stage=before_envelope`);
         const envelopeFetched = await withTimeout(
@@ -831,6 +819,7 @@ const processMailboxBatch = async ({
         if (existingMsg && existingMsg.length) {
           result.skipped += 1;
           console.log(`[email][batch] uid=${uid} skip_reason=already_processed`);
+          result.new_last_uid = uid;
           continue;
         }
         const parts = collectAttachmentParts(envelopeFetched.bodyStructure, [], "");
@@ -866,6 +855,7 @@ const processMailboxBatch = async ({
               } bs_children=${bodyStructure?.childNodes?.length ?? bodyStructure?.children?.length ?? 0}`
             );
             console.log(`[email][batch] uid=${uid} skip_reason=no_pdf_or_image`);
+            result.new_last_uid = uid;
             continue;
           }
           preferred = choosePreferredPart(summary.map((p) => ({ ...p, partID: p.path, mime: p.mime, filename: p.filename })));
@@ -878,6 +868,7 @@ const processMailboxBatch = async ({
               } bs_children=${bodyStructure?.childNodes?.length ?? bodyStructure?.children?.length ?? 0}`
             );
             console.log(`[email][batch] uid=${uid} skip_reason=no_pdf_or_image`);
+            result.new_last_uid = uid;
             continue;
           }
         }
@@ -920,6 +911,9 @@ const processMailboxBatch = async ({
             preferred.via || "unknown"
           }`
         );
+        const processedBefore = result.processed;
+        const skippedBefore = result.skipped;
+        const errorsBefore = result.errors.length;
         await processAttachmentsForMessage({
           supabase,
           parsed: parsedCandidate,
@@ -927,6 +921,9 @@ const processMailboxBatch = async ({
           uid,
           resultRef: result,
         });
+        if (result.errors.length === errorsBefore && (result.processed > processedBefore || result.skipped > skippedBefore)) {
+          result.new_last_uid = uid;
+        }
       } catch (err) {
         if (err?.code === "ETIMEOUT") {
           result.failed += 1;
