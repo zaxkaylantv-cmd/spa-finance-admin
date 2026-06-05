@@ -3,6 +3,7 @@ const { ImapFlow } = require("imapflow");
 const { simpleParser } = require("mailparser");
 const { uploadBufferToDrive } = require("../google/driveUpload");
 const { getSupabaseAdminClient } = require("../supabaseClient");
+const { extractInvoiceFields } = require("../ai/extractAndMerge");
 
 const parseBool = (val, fallback) => {
   if (typeof val === "undefined" || val === null) return fallback;
@@ -298,6 +299,31 @@ const processOneInvoiceEmail = async () => {
           invoice = invoiceInsert;
           console.log(`Inserted invoice id=${invoice.id}`);
 
+          try {
+            const fields = await extractInvoiceFields({ buffer: att.content, mimeType: att.contentType, filename: att.filename });
+            const updatePayload = {
+              supplier: fields.supplier,
+              invoice_number: fields.invoice_number,
+              issue_date: fields.issue_date,
+              due_date: fields.due_date,
+              amount: fields.amount,
+              vat_amount: fields.vat_amount,
+              status: fields.status,
+              category: fields.category,
+              week_label: fields.week_label,
+              confidence: fields.confidence,
+              extracted_json: fields.extracted_json,
+              extracted_source: fields.extracted_source,
+              needs_review: fields.needs_review,
+              updated_at: new Date().toISOString(),
+            };
+            const { error: extractErr } = await supabase.from("invoices").update(updatePayload).eq("id", invoice.id);
+            if (extractErr) { console.error("[email] extraction update failed id=" + invoice.id, extractErr.message); }
+            else { console.log("[email] extraction applied id=" + invoice.id + " supplier=" + (fields.supplier||"null") + " amount=" + (fields.amount===null?"null":fields.amount) + " needs_review=" + fields.needs_review); }
+          } catch (e) {
+            console.error("[email] extraction threw id=" + invoice.id, e.message);
+          }
+
           const { error: fileErr } = await supabase
             .from("files")
             .upsert(
@@ -581,6 +607,31 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
       invoice = invoiceInsert;
       console.log(`Inserted invoice id=${invoice.id}`);
 
+      try {
+        const fields = await extractInvoiceFields({ buffer: att.content, mimeType: att.contentType, filename: att.filename });
+        const updatePayload = {
+          supplier: fields.supplier,
+          invoice_number: fields.invoice_number,
+          issue_date: fields.issue_date,
+          due_date: fields.due_date,
+          amount: fields.amount,
+          vat_amount: fields.vat_amount,
+          status: fields.status,
+          category: fields.category,
+          week_label: fields.week_label,
+          confidence: fields.confidence,
+          extracted_json: fields.extracted_json,
+          extracted_source: fields.extracted_source,
+          needs_review: fields.needs_review,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: extractErr } = await supabase.from("invoices").update(updatePayload).eq("id", invoice.id);
+        if (extractErr) { console.error("[email] extraction update failed id=" + invoice.id, extractErr.message); }
+        else { console.log("[email] extraction applied id=" + invoice.id + " supplier=" + (fields.supplier||"null") + " amount=" + (fields.amount===null?"null":fields.amount) + " needs_review=" + fields.needs_review); }
+      } catch (e) {
+        console.error("[email] extraction threw id=" + invoice.id, e.message);
+      }
+
       const { error: fileErr } = await supabase
         .from("files")
         .upsert(
@@ -676,15 +727,18 @@ const collectAttachmentParts = (node, acc = [], pathPrefix = "") => {
   const isLeaf = !Array.isArray(node.childNodes) || node.childNodes.length === 0;
   const filename = node.disposition?.params?.filename || node.parameters?.name || node.filename || "";
   const lowerName = filename.toLowerCase();
+  const mimeLower = mime.toLowerCase();
   const hasPdfExt = lowerName.endsWith(".pdf");
   const hasImageExt = lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || lowerName.endsWith(".png");
-  const isAttachmentByMime = mime && (mime === "application/pdf" || mime.startsWith("image/"));
+  const isPdfAttachment = mimeLower === "application/pdf" || (mimeLower === "application/octet-stream" && (hasPdfExt || disposition === "attachment"));
+  const isAttachmentByMime = mime && (isPdfAttachment || mimeLower.startsWith("image/"));
   const isInlineCandidate = disposition === "inline" && (hasPdfExt || hasImageExt);
   const isAttachment = (disposition === "attachment" || isLeaf || isInlineCandidate) && (isAttachmentByMime || hasPdfExt || hasImageExt);
   if (isAttachment && partID) {
     acc.push({
       partID,
       mime,
+      disposition,
       filename,
       size: node.size || null,
     });
@@ -712,13 +766,19 @@ const choosePreferredPart = (parts) => {
   const annotate = (p) => {
     const nameGuess = normaliseName(p);
     const mimeLower = (p.mime || "").toLowerCase();
-    const pdfMime = mimeLower === "application/pdf";
+    const dispositionLower = (p.disposition || p.disposition_type || "").toLowerCase();
     const imgMime = mimeLower.startsWith("image/");
     const pdfExt = hasPdfExt(nameGuess);
     const imgExt = hasImageExt(nameGuess);
+    const pdfMime = mimeLower === "application/pdf" || (mimeLower === "application/octet-stream" && (pdfExt || dispositionLower === "attachment"));
     return { ...p, nameGuess, pdfMime, imgMime, pdfExt, imgExt };
   };
-  const annotated = parts.map(annotate);
+  const annotated = parts
+    .filter((p) => {
+      const mimeLower = (p.mime || "").toLowerCase();
+      return !mimeLower.startsWith("text/") && !mimeLower.startsWith("multipart/");
+    })
+    .map(annotate);
   const byPdf = annotated.find((p) => p.pdfMime || p.pdfExt);
   if (byPdf) return { ...byPdf, kind: "pdf", via: byPdf.pdfMime ? "mime" : "filename" };
   const byImage = annotated.find((p) => p.imgMime || p.imgExt);
@@ -826,7 +886,17 @@ const processMailboxBatch = async ({
         let preferred = choosePreferredPart(parts);
         if (!preferred || !preferred.partID) {
           const summary = collectPartsSummary(envelopeFetched.bodyStructure, [], "1");
-          let hasCandidate = false;
+          const selectableSummary = (summary || []).filter((p) => {
+            const lower = (p.filename || "").toLowerCase();
+            const pdfExt = lower.endsWith(".pdf");
+            const imgExt = lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png");
+            const mimeLower = (p.mime || "").toLowerCase();
+            const pdfMime = mimeLower === "application/pdf";
+            const imgMime = mimeLower.startsWith("image/");
+            const octetMime = mimeLower === "application/octet-stream";
+            const blockedMime = mimeLower.startsWith("text/") || mimeLower.startsWith("multipart/");
+            return p.is_leaf && !blockedMime && (pdfMime || imgMime || (octetMime && (pdfExt || imgExt)));
+          });
           (summary || []).slice(0, 12).forEach((p) => {
             const hasName = Boolean(p.filename);
             const lower = (p.filename || "").toLowerCase();
@@ -835,9 +905,6 @@ const processMailboxBatch = async ({
             const mimeLower = (p.mime || "").toLowerCase();
             const pdfMime = mimeLower === "application/pdf";
             const imgMime = mimeLower.startsWith("image/");
-            if (p.is_leaf && (pdfMime || pdfExt || imgMime || imgExt)) {
-              hasCandidate = true;
-            }
             console.log(
               `[email][batch] uid=${uid} part=${p.path || "na"} mime=${p.mime || "na"} disp=${
                 p.disposition_type || "na"
@@ -846,7 +913,7 @@ const processMailboxBatch = async ({
               } imgMime=${imgMime ? "1" : "0"} imgExt=${imgExt ? "1" : "0"}`
             );
           });
-          if (!hasCandidate) {
+          if (!selectableSummary.length) {
             result.skipped += 1;
             const bodyStructure = envelopeFetched.bodyStructure;
             console.log(
@@ -858,7 +925,7 @@ const processMailboxBatch = async ({
             result.new_last_uid = uid;
             continue;
           }
-          preferred = choosePreferredPart(summary.map((p) => ({ ...p, partID: p.path, mime: p.mime, filename: p.filename })));
+          preferred = choosePreferredPart(selectableSummary.map((p) => ({ ...p, partID: p.path, mime: p.mime, filename: p.filename })));
           if (!preferred || !preferred.partID) {
             result.skipped += 1;
             const bodyStructure = envelopeFetched.bodyStructure;

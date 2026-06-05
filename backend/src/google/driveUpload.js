@@ -72,7 +72,8 @@ const uploadBufferToDrive = async ({ buffer, mimeType, name }) => {
   }
 
   const { drive } = await createDriveClient();
-  const bodyStream = Readable.from(buffer);
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer, "base64");
+  const bodyStream = Readable.from(buf, { objectMode: false });
   const requestBody = {
     name,
     parents: [folderId],
