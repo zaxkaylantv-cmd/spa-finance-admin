@@ -7,6 +7,7 @@ import { apiUrl, getApiBase, tryFetchApi } from "../utils/api";
 void apiUrl;
 
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
+const DOC_PAGE_SIZE = 15;
 const formatCurrency = (value: any) => {
   const num = Number(value);
   if (!Number.isFinite(num)) return "—";
@@ -205,6 +206,7 @@ export default function DocumentsTab({
   const [autoApprovalStatus, setAutoApprovalStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraftStatus, setEmailDraftStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(null);
+  const [docPage, setDocPage] = useState<number>(1);
   void aiActions;
   void aiLoading;
   void setAutoApprovalStatus;
@@ -311,11 +313,21 @@ export default function DocumentsTab({
   const invoiceRows = useMemo(() => filteredDocuments.filter((doc) => getDocKind(doc) === "invoice"), [filteredDocuments]);
   const receiptRows = useMemo(() => filteredDocuments.filter((doc) => getDocKind(doc) === "receipt"), [filteredDocuments]);
   const tableRows = currentDocTab === "invoice" ? invoiceRows : receiptRows;
+  const totalRows = tableRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / DOC_PAGE_SIZE));
+  const currentPage = Math.min(docPage, totalPages);
+  const startIndex = (currentPage - 1) * DOC_PAGE_SIZE;
+  const endIndex = startIndex + DOC_PAGE_SIZE;
+  const paginatedRows = tableRows.slice(startIndex, endIndex);
   const selectedDoc = useMemo(
     () => documents.find((doc) => doc.id === selectedDocId) ?? null,
     [documents, selectedDocId],
   );
   const originalFileRef = useMemo(() => getOriginalFileRef(selectedDoc), [selectedDoc]);
+
+  useEffect(() => {
+    setDocPage(1);
+  }, [filters, currentDocTab, tableRows.length]);
 
   useEffect(() => {
     if (selectedDoc) {
@@ -1229,7 +1241,7 @@ export default function DocumentsTab({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {receiptRows.map((doc) => {
+                    {paginatedRows.map((doc) => {
                       const receiptStatus = (doc as any).status || "Captured";
                       const statusClass = statusStyles[receiptStatus as InvoiceStatus] || "bg-slate-100 text-slate-700 border-slate-200";
                       const receiptSource = normalizeSource(
@@ -1300,7 +1312,7 @@ export default function DocumentsTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {tableRows.map((doc) => {
+                  {paginatedRows.map((doc) => {
                     const computedStatus = computeInvoiceStatus(doc);
                     const displayStatus = (doc.status as InvoiceStatus) || computedStatus;
                     const statusClass = statusStyles[displayStatus] || "bg-slate-100 text-slate-700 border-slate-200";
@@ -1346,6 +1358,34 @@ export default function DocumentsTab({
               </table>
             )}
           </div>
+          {totalRows > 0 && (
+            <div className="flex items-center justify-between px-4 pb-4 text-sm text-slate-600">
+              <span>
+                Showing {totalRows === 0 ? 0 : startIndex + 1}–{Math.min(endIndex, totalRows)} of {totalRows}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                  onClick={() => setDocPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                >
+                  Previous
+                </button>
+                <span className="text-xs font-semibold text-slate-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="rounded border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                  onClick={() => setDocPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
