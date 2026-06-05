@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DashboardTab from "./components/DashboardTab";
 import DocumentsTab from "./components/DocumentsTab";
 import CashflowTab from "./components/CashflowTab";
@@ -18,6 +18,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [invoices, setInvoices] = useState<Invoice[]>(() => mockInvoices);
   const [loadWarning, setLoadWarning] = useState(false);
+  const [showArchivedDocuments, setShowArchivedDocuments] = useState(false);
   const [appKey, setAppKey] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem("appKey") || "";
@@ -71,13 +72,12 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadInvoices = async () => {
+  const loadInvoices = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
       try {
-        const res = await tryFetchApi("/api/invoices");
+        const res = await tryFetchApi(showArchivedDocuments ? "/api/invoices?includeArchived=1" : "/api/invoices");
         const data = (await res.json()) as { invoices?: Invoice[] };
-        if (cancelled) return;
+        if (isCancelled()) return;
         if (Array.isArray(data.invoices)) {
           const normalizedInvoices = data.invoices.map((inv: any) => ({
             ...inv,
@@ -87,7 +87,9 @@ export default function App() {
           }));
           let receipts: any[] = [];
           try {
-            const receiptsRes = await tryFetchApi("/api/receipts");
+            const receiptsRes = await tryFetchApi(
+              showArchivedDocuments ? "/api/receipts?includeArchived=1" : "/api/receipts",
+            );
             const receiptsData = (await receiptsRes.json()) as { receipts?: any[] };
             if (Array.isArray(receiptsData.receipts)) {
               receipts = receiptsData.receipts.map((rec: any) => ({
@@ -122,23 +124,28 @@ export default function App() {
       } catch (err) {
         if (import.meta.env.DEV) {
           console.warn("Falling back to mockInvoices; backend not reachable", err);
-          if (!cancelled) setInvoices(mockInvoices);
+          if (!isCancelled()) setInvoices(mockInvoices);
         } else {
           console.warn("Live invoices not reachable; showing warning banner", err);
-          if (!cancelled) {
+          if (!isCancelled()) {
             setLoadWarning(true);
             setInvoices([]);
           }
         }
       }
-    };
+    },
+    [showArchivedDocuments],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
     if (sessionPresent) {
-      void loadInvoices();
+      void loadInvoices(() => cancelled);
     }
     return () => {
       cancelled = true;
     };
-  }, [sessionPresent]);
+  }, [loadInvoices, sessionPresent]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -204,6 +211,15 @@ export default function App() {
       await tryFetchApi(`/api/invoices/${id}/archive`, { method: "POST" });
     } catch (err) {
       console.warn("Archive request failed; invoice already removed locally", err);
+    }
+  };
+
+  const handleUnarchiveInvoice = async (id: number | string) => {
+    try {
+      await tryFetchApi(`/api/invoices/${id}/unarchive`, { method: "POST" });
+      await loadInvoices();
+    } catch (err) {
+      console.warn("Unarchive request failed; invoice lists unchanged", err);
     }
   };
 
@@ -312,12 +328,15 @@ export default function App() {
         {activeTab === "dashboard" && <DashboardTab invoices={activeInvoices} />}
         {activeTab === "documents" && (
           <DocumentsTab
-            invoices={activeInvoices}
+            invoices={showArchivedDocuments ? invoices : activeInvoices}
             onMarkPaid={markAsPaid}
             onArchive={archiveInvoice}
             onInvoiceCreatedFromUpload={handleInvoiceCreatedFromUpload}
             onInvoiceUpdated={handleInvoiceUpdated}
             onArchiveInvoice={handleArchiveInvoice}
+            showArchivedDocuments={showArchivedDocuments}
+            onToggleShowArchived={setShowArchivedDocuments}
+            onUnarchiveInvoice={handleUnarchiveInvoice}
             appKey={appKey}
           />
         )}

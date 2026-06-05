@@ -155,6 +155,9 @@ type Props = {
   onArchive: (id: string) => void;
   onInvoiceCreatedFromUpload?: (invoice: Invoice) => void;
   onArchiveInvoice?: (id: number | string) => void;
+  showArchivedDocuments?: boolean;
+  onToggleShowArchived?: (value: boolean) => void;
+  onUnarchiveInvoice?: (id: number | string) => void;
   onInvoiceUpdated?: (invoice: Invoice) => void;
   appKey: string;
 };
@@ -165,6 +168,9 @@ export default function DocumentsTab({
   onArchive,
   onInvoiceCreatedFromUpload,
   onArchiveInvoice,
+  showArchivedDocuments,
+  onToggleShowArchived,
+  onUnarchiveInvoice,
   onInvoiceUpdated,
   appKey,
 }: Props) {
@@ -323,6 +329,8 @@ export default function DocumentsTab({
     () => documents.find((doc) => doc.id === selectedDocId) ?? null,
     [documents, selectedDocId],
   );
+  const selectedDocArchived =
+    selectedDoc !== null && (("archived" in selectedDoc && selectedDoc.archived === true) || selectedDoc.status === "Archived");
   const originalFileRef = useMemo(() => getOriginalFileRef(selectedDoc), [selectedDoc]);
 
   useEffect(() => {
@@ -1140,7 +1148,7 @@ export default function DocumentsTab({
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="space-y-4 p-4">
-          <div className="grid gap-3 md:grid-cols-5 text-sm">
+          <div className="grid gap-3 md:grid-cols-6 text-sm">
             <div className="md:col-span-1">
               <p className="text-xs uppercase text-slate-500">Date range</p>
               <select
@@ -1206,6 +1214,15 @@ export default function DocumentsTab({
                 ))}
               </select>
             </div>
+            <label className="mt-5 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700">
+              <input
+                checked={Boolean(showArchivedDocuments)}
+                className="h-4 w-4 rounded border-slate-300 text-slate-700"
+                onChange={(e) => onToggleShowArchived?.(e.target.checked)}
+                type="checkbox"
+              />
+              <span>Show archived</span>
+            </label>
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/60">
@@ -1821,22 +1838,35 @@ export default function DocumentsTab({
                 >
                   Mark as paid
                 </button>
-                <button
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                  onClick={() => {
-                    if (onArchiveInvoice) {
-                      onArchiveInvoice(selectedDoc.id);
-                      if (getDocKind(selectedDoc) === "receipt") {
-                        setReceipts((prev) => prev.filter((rec) => rec.id !== selectedDoc.id));
+                {selectedDocArchived ? (
+                  <button
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => {
+                      if (!window.confirm("Restore this document to the active list?")) return;
+                      onUnarchiveInvoice?.(selectedDoc.id);
+                      setSelectedDocId(null);
+                    }}
+                  >
+                    Un-archive
+                  </button>
+                ) : (
+                  <button
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => {
+                      if (onArchiveInvoice) {
+                        onArchiveInvoice(selectedDoc.id);
+                        if (getDocKind(selectedDoc) === "receipt") {
+                          setReceipts((prev) => prev.filter((rec) => rec.id !== selectedDoc.id));
+                        }
+                      } else {
+                        onArchive(selectedDoc.id);
                       }
-                    } else {
-                      onArchive(selectedDoc.id);
-                    }
-                    setSelectedDocId(null);
-                  }}
-                >
-                  Archive
-                </button>
+                      setSelectedDocId(null);
+                    }}
+                  >
+                    Archive
+                  </button>
+                )}
                 <button className="text-slate-700 hover:text-slate-900" onClick={() => setSelectedDocId(null)}>
                   Close
                 </button>

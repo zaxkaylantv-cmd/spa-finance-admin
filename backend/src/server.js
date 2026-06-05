@@ -1110,6 +1110,30 @@ app.post("/api/invoices/:id/archive", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/api/invoices/:id/unarchive", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid invoice id" });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("invoices")
+      .update({ archived: false, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to unarchive invoice", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!data) return res.status(404).json({ error: "Invoice not found" });
+    res.json({ success: true, invoice: data });
+  } catch (err) {
+    console.error("Failed to unarchive invoice", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.patch("/api/invoices/:id", requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
