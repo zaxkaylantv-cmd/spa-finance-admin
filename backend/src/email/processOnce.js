@@ -740,6 +740,7 @@ const collectAttachmentParts = (node, acc = [], pathPrefix = "") => {
       mime,
       disposition,
       filename,
+      encoding: (node.encoding || "").toString().toLowerCase(),
       size: node.size || null,
     });
   }
@@ -792,9 +793,10 @@ const collectPartsSummary = (node, acc = [], path = "1") => {
   const mime = node.type && node.subtype ? `${node.type}/${node.subtype}` : node.type || undefined;
   const disposition_type = node.disposition?.type || null;
   const filename = node.disposition?.params?.filename || node.parameters?.name || node.filename || "";
+  const encoding = (node.encoding || "").toString().toLowerCase();
   const size = node.size || null;
   const is_leaf = !Array.isArray(node.childNodes) || node.childNodes.length === 0;
-  acc.push({ path: partPath, mime, disposition_type, filename, size, is_leaf });
+  acc.push({ path: partPath, mime, disposition_type, filename, encoding, size, is_leaf });
   if (Array.isArray(node.childNodes)) {
     node.childNodes.forEach((child, idx) => {
       collectPartsSummary(child, acc, path ? `${path}.${idx + 1}` : `${idx + 1}`);
@@ -803,16 +805,56 @@ const collectPartsSummary = (node, acc = [], path = "1") => {
   return acc;
 };
 
-const downloadPartToBuffer = async ({ client, uid, partID }) => {
+const downloadPartToBuffer = async ({ client, uid, partID, encoding }) => {
   const msg = await client.fetchOne(uid, { uid: true, bodyParts: [partID] });
   if (!msg || !msg.bodyParts || !msg.bodyParts.get(partID)) {
     throw new Error("no_content_for_part:" + partID);
   }
-  const buf = msg.bodyParts.get(partID);
-  if (MAX_ATTACHMENT_BYTES && buf.length > MAX_ATTACHMENT_BYTES) {
-    throw new Error("attachment_too_large:" + partID);
+  const raw = msg.bodyParts.get(partID);
+  const isBinaryDoc = (buf) =>
+    Buffer.isBuffer(buf) &&
+    ((buf.length >= 4 && buf.slice(0, 4).toString("latin1") === "%PDF") ||
+      (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) ||
+      (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8));
+  const base64DecodeIfDoc = (buf) => {
+    const stripped = buf.toString("latin1").replace(/\s+/g, "");
+    if (!stripped || stripped.length % 4 !== 0 || !/^[A-Za-z0-9+/=]+$/.test(stripped)) return null;
+    const decoded = Buffer.from(stripped, "base64");
+    return isBinaryDoc(decoded) ? decoded : null;
+  };
+  try {
+    const enc = (encoding || "").toString().toLowerCase();
+    let finalBuf = raw;
+    if (isBinaryDoc(raw)) {
+      finalBuf = raw;
+    } else if (enc === "base64") {
+      finalBuf = Buffer.from(raw.toString("latin1").replace(/\s+/g, ""), "base64");
+    } else if (enc === "quoted-printable") {
+      const bytes = [];
+      const qp = raw.toString("latin1").replace(/=\r?\n/g, "");
+      for (let i = 0; i < qp.length; i += 1) {
+        if (qp[i] === "=" && /^[0-9A-Fa-f]{2}$/.test(qp.slice(i + 1, i + 3))) {
+          bytes.push(parseInt(qp.slice(i + 1, i + 3), 16));
+          i += 2;
+        } else {
+          bytes.push(qp.charCodeAt(i) & 0xff);
+        }
+      }
+      finalBuf = Buffer.from(bytes);
+    } else {
+      finalBuf = base64DecodeIfDoc(raw) || raw;
+    }
+    if (!isBinaryDoc(finalBuf)) {
+      finalBuf = base64DecodeIfDoc(raw) || finalBuf;
+    }
+    if (MAX_ATTACHMENT_BYTES && finalBuf.length > MAX_ATTACHMENT_BYTES) {
+      throw new Error("attachment_too_large:" + partID);
+    }
+    return finalBuf;
+  } catch (err) {
+    if (String(err.message || "").startsWith("attachment_too_large:")) throw err;
+    throw new Error("decode_failed:" + partID);
   }
-  return buf;
 };
 
 const processMailboxBatch = async ({
@@ -925,7 +967,7 @@ const processMailboxBatch = async ({
             result.new_last_uid = uid;
             continue;
           }
-          preferred = choosePreferredPart(selectableSummary.map((p) => ({ ...p, partID: p.path, mime: p.mime, filename: p.filename })));
+          preferred = choosePreferredPart(selectableSummary.map((p) => ({ ...p, partID: p.path, mime: p.mime, filename: p.filename, encoding: p.encoding })));
           if (!preferred || !preferred.partID) {
             result.skipped += 1;
             const bodyStructure = envelopeFetched.bodyStructure;
@@ -942,7 +984,7 @@ const processMailboxBatch = async ({
         let buffer = null;
         try {
           console.log(`[email][batch] uid=${uid} stage=before_download`);
-          buffer = await downloadPartToBuffer({ client, uid, partID: preferred.partID });
+          buffer = await downloadPartToBuffer({ client, uid, partID: preferred.partID, encoding: preferred.encoding });
           console.log(`[email][batch] uid=${uid} stage=after_download`);
         } catch (err) {
           const isTimeout = err?.code === "ETIMEOUT" || String(err.message || "").toLowerCase().includes("timeout");
