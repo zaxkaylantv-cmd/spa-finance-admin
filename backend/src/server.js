@@ -42,6 +42,7 @@ const { execFile } = require("child_process");
 const { getSupabaseAdminClient } = require("./supabaseClient");
 const { requireAuthFlexible, requireAuth } = require("./auth");
 const { normaliseDateOrNull, normaliseDateStrict } = require("./util/dateNormalise");
+const { deriveDueDateFromTerms } = require("./util/paymentTerms");
 const { generateAuthUrl, exchangeCodeForTokens, saveRefreshToken, getTokenStatus, consumeState } = require("./google/driveAuth");
 const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
 const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
@@ -1626,6 +1627,13 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
 
     mergedInvoice.issue_date = normaliseDateOrNull(mergedInvoice.issue_date);
     mergedInvoice.due_date = normaliseDateOrNull(mergedInvoice.due_date);
+    let paymentTerm = null;
+    if (!mergedInvoice.due_date && mergedInvoice.issue_date) {
+      const derived = deriveDueDateFromTerms(rawText, mergedInvoice.issue_date);
+      paymentTerm = derived.term;
+      if (derived.dueDateISO) mergedInvoice.due_date = derived.dueDateISO;
+    }
+    mergedInvoice.week_label = mergedInvoice.due_date ? weekLabelFromDate(mergedInvoice.due_date) : null;
     mergedInvoice.amount = toNullableNumber(mergedInvoice.amount);
     mergedInvoice.vat_amount = toNullableNumber(mergedInvoice.vat_amount);
     mergedInvoice.merchant = mergedInvoice.merchant || null;
@@ -1646,6 +1654,12 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
         } catch (_ignore) {
           parsedExtractedJson = mergedInvoice.extracted_json;
         }
+      }
+      if (paymentTerm) {
+        parsedExtractedJson =
+          parsedExtractedJson && typeof parsedExtractedJson === "object" && !Array.isArray(parsedExtractedJson)
+            ? { ...parsedExtractedJson, payment_term: paymentTerm }
+            : { payment_term: paymentTerm };
       }
 
       const supabasePayload = {

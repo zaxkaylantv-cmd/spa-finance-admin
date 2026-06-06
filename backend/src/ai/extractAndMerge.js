@@ -5,6 +5,7 @@ const { execFile } = require("child_process");
 const { PDFParse } = require("pdf-parse");
 const { extractInvoiceFromText } = require("./invoiceExtractor");
 const { normaliseDateOrNull } = require("../util/dateNormalise");
+const { deriveDueDateFromTerms } = require("../util/paymentTerms");
 
 const emptyResult = () => ({
   supplier: null,
@@ -195,9 +196,17 @@ const extractInvoiceFields = async ({ buffer, mimeType, filename }) => {
     }
 
     mergedInvoice.extracted_source = extractedSource;
-    mergedInvoice.extracted_json = aiResult ? JSON.stringify(aiResult).slice(0, 8000) : null;
     mergedInvoice.issue_date = normaliseDateOrNull(mergedInvoice.issue_date);
     mergedInvoice.due_date = normaliseDateOrNull(mergedInvoice.due_date);
+    let paymentTerm = null;
+    if (!mergedInvoice.due_date && mergedInvoice.issue_date) {
+      const derived = deriveDueDateFromTerms(rawText, mergedInvoice.issue_date);
+      paymentTerm = derived.term;
+      if (derived.dueDateISO) mergedInvoice.due_date = derived.dueDateISO;
+    }
+    const extractedJson = aiResult && typeof aiResult === "object" ? { ...aiResult } : {};
+    if (paymentTerm) extractedJson.payment_term = paymentTerm;
+    mergedInvoice.extracted_json = aiResult || paymentTerm ? JSON.stringify(extractedJson).slice(0, 8000) : null;
     mergedInvoice.amount = toNullableNumber(mergedInvoice.amount);
     mergedInvoice.vat_amount = toNullableNumber(mergedInvoice.vat_amount);
     mergedInvoice.category = mergedInvoice.category || null;
