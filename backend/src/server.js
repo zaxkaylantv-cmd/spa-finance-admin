@@ -1391,21 +1391,18 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
     }
 
     const nowIso = new Date().toISOString();
-    const today = new Date();
-    const due = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
-    const toISO = (d) => d.toISOString().slice(0, 10);
     const weekLabelFromDate = (date) => `Week of ${date}`;
 
     const fallbackInvoice = {
       supplier: "Uploaded invoice",
       invoice_number: req.file.originalname,
-      issue_date: toISO(today),
-      due_date: toISO(due),
+      issue_date: null,
+      due_date: null,
       amount: null,
       status: "Upcoming",
       category: "Uncategorised",
       source: "Upload",
-      week_label: weekLabelFromDate(toISO(due)),
+      week_label: null,
       archived: 0,
       vat_amount: null,
       doc_type: "invoice",
