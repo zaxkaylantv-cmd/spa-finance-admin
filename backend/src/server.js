@@ -41,7 +41,7 @@ const os = require("os");
 const { execFile } = require("child_process");
 const { getSupabaseAdminClient } = require("./supabaseClient");
 const { requireAuthFlexible, requireAuth } = require("./auth");
-const { normaliseDateStrict } = require("./util/dateNormalise");
+const { normaliseDateOrNull, normaliseDateStrict } = require("./util/dateNormalise");
 const { generateAuthUrl, exchangeCodeForTokens, saveRefreshToken, getTokenStatus, consumeState } = require("./google/driveAuth");
 const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
 const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
@@ -1503,14 +1503,6 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
       const num = parseFloat(cleaned);
       return Number.isNaN(num) ? undefined : num;
     };
-    const normaliseDate = (value) => {
-      if (!value) return null;
-      const str = String(value).trim();
-      if (!str) return null;
-      const parsed = new Date(str);
-      if (Number.isNaN(parsed.getTime())) return null;
-      return parsed.toISOString().slice(0, 10);
-    };
     const normaliseNumber = (value) => {
       if (value === null || value === undefined || value === "") return null;
       const num = Number(value);
@@ -1531,17 +1523,11 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
         const parts = line.split(/[:\-]/);
         return parts.length > 1 ? parts.slice(1).join(":").trim() : undefined;
       };
-      const parseDate = (value) => {
-        if (!value) return undefined;
-        const parsed = new Date(value);
-        return isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
-      };
-
       return {
         supplier: findValue("supplier"),
         invoice_number: findValue("invoice number") || findValue("invoice no") || findValue("inv"),
-        issue_date: parseDate(findValue("issue date")),
-        due_date: parseDate(findValue("due date")),
+        issue_date: normaliseDateOrNull(findValue("issue date")),
+        due_date: normaliseDateOrNull(findValue("due date")),
         amount: parseAmount(findValue("amount") || findValue("total") || findValue("balance")),
       };
     };
@@ -1611,7 +1597,8 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
         (typeof aiResult.status === "string" && aiResult.status.trim()) || mergedInvoice.status;
       mergedInvoice.category =
         (typeof aiResult.category === "string" && aiResult.category.trim()) || mergedInvoice.category;
-      mergedInvoice.week_label = aiResult.due_date ? weekLabelFromDate(aiResult.due_date) : mergedInvoice.week_label;
+      const normalisedDueDate = normaliseDateOrNull(aiResult.due_date);
+      mergedInvoice.week_label = normalisedDueDate ? weekLabelFromDate(normalisedDueDate) : null;
       mergedInvoice.confidence =
         typeof aiResult.confidence === "number" && Number.isFinite(aiResult.confidence) ? aiResult.confidence : null;
     } else {
@@ -1637,8 +1624,8 @@ app.post("/api/upload-invoice", requireAuth, upload.single("file"), async (req, 
       mergedInvoice.needs_review = 0;
     }
 
-    mergedInvoice.issue_date = normaliseDate(mergedInvoice.issue_date);
-    mergedInvoice.due_date = normaliseDate(mergedInvoice.due_date);
+    mergedInvoice.issue_date = normaliseDateOrNull(mergedInvoice.issue_date);
+    mergedInvoice.due_date = normaliseDateOrNull(mergedInvoice.due_date);
     mergedInvoice.amount = toNullableNumber(mergedInvoice.amount);
     mergedInvoice.vat_amount = toNullableNumber(mergedInvoice.vat_amount);
     mergedInvoice.merchant = mergedInvoice.merchant || null;

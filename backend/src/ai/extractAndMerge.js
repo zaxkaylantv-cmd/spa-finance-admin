@@ -4,6 +4,7 @@ const os = require("os");
 const { execFile } = require("child_process");
 const { PDFParse } = require("pdf-parse");
 const { extractInvoiceFromText } = require("./invoiceExtractor");
+const { normaliseDateOrNull } = require("../util/dateNormalise");
 
 const emptyResult = () => ({
   supplier: null,
@@ -28,15 +29,6 @@ const parseAmount = (value) => {
   return Number.isNaN(num) ? undefined : num;
 };
 
-const normaliseDate = (value) => {
-  if (!value) return null;
-  const str = String(value).trim();
-  if (!str) return null;
-  const parsed = new Date(str);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
-};
-
 const toNullableNumber = (value) => {
   if (value === null || value === undefined || value === "" || value === "NaN") return null;
   const num = Number(value);
@@ -54,17 +46,11 @@ const simpleExtract = (text) => {
     const parts = line.split(/[:\-]/);
     return parts.length > 1 ? parts.slice(1).join(":").trim() : undefined;
   };
-  const parseDate = (value) => {
-    if (!value) return undefined;
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
-  };
-
   return {
     supplier: findValue("supplier"),
     invoice_number: findValue("invoice number") || findValue("invoice no") || findValue("inv"),
-    issue_date: parseDate(findValue("issue date")),
-    due_date: parseDate(findValue("due date")),
+    issue_date: normaliseDateOrNull(findValue("issue date")),
+    due_date: normaliseDateOrNull(findValue("due date")),
     amount: parseAmount(findValue("amount") || findValue("total") || findValue("balance")),
   };
 };
@@ -210,8 +196,8 @@ const extractInvoiceFields = async ({ buffer, mimeType, filename }) => {
 
     mergedInvoice.extracted_source = extractedSource;
     mergedInvoice.extracted_json = aiResult ? JSON.stringify(aiResult).slice(0, 8000) : null;
-    mergedInvoice.issue_date = normaliseDate(mergedInvoice.issue_date);
-    mergedInvoice.due_date = normaliseDate(mergedInvoice.due_date);
+    mergedInvoice.issue_date = normaliseDateOrNull(mergedInvoice.issue_date);
+    mergedInvoice.due_date = normaliseDateOrNull(mergedInvoice.due_date);
     mergedInvoice.amount = toNullableNumber(mergedInvoice.amount);
     mergedInvoice.vat_amount = toNullableNumber(mergedInvoice.vat_amount);
     mergedInvoice.category = mergedInvoice.category || null;
