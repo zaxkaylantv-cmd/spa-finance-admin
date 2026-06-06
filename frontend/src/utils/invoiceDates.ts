@@ -2,7 +2,7 @@ import type { Invoice } from "../data/mockInvoices";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-export type DisplayStatus = "Paid" | "Overdue" | "Due soon" | "Upcoming" | "Unpaid";
+export type DisplayStatus = "Paid" | "Overdue" | "Due soon" | "Upcoming" | "Unpaid" | "Needs a due date";
 
 export const getInvoiceDueDate = (invoice: Invoice): Date | null => {
   const rawCandidates = [
@@ -33,7 +33,7 @@ export const getDisplayStatus = (invoice: Invoice, today: Date): DisplayStatus =
   if (status === "paid") return "Paid";
 
   const due = getInvoiceDueDate(invoice);
-  if (!due) return "Unpaid";
+  if (!due) return "Needs a due date";
 
   const diffDays = (due.getTime() - today.getTime()) / MS_PER_DAY;
 

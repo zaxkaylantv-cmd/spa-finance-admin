@@ -19,6 +19,12 @@ const formatInvoiceDate = (value: string | null | undefined) => {
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
+const formatDueDate = (value: string | null | undefined) => {
+  if (!value) return "Needs a due date";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "Needs a due date";
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+};
 const getDocKind = (doc: any): "invoice" | "receipt" | "other" => {
   const raw =
     doc?.doc_type ||
@@ -73,7 +79,9 @@ const formatPollSeconds = (pollSeconds?: number | null) => {
 const getIssueDate = (invoice: Invoice): string | undefined => invoice.issue_date ?? invoice.issueDate;
 const getDueDate = (invoice: Invoice): string | undefined => invoice.due_date ?? invoice.dueDate;
 
-const statusStyles: Record<InvoiceStatus, string> = {
+type DocumentDisplayStatus = InvoiceStatus | "Needs a due date";
+
+const statusStyles: Record<DocumentDisplayStatus, string> = {
   Overdue: "bg-rose-50 text-rose-700 border-rose-200",
   "Due soon": "bg-amber-50 text-amber-700 border-amber-200",
   Upcoming: "bg-[color:var(--spa-wash)] text-slate-800 border-[color:var(--spa-border)]",
@@ -81,6 +89,7 @@ const statusStyles: Record<InvoiceStatus, string> = {
   Archived: "bg-slate-100 text-slate-500 border-slate-200",
   "Needs info": "bg-amber-50 text-amber-700 border-amber-200",
   Captured: "bg-[color:var(--spa-accent-2)] text-slate-800 border-[color:var(--spa-border)]",
+  "Needs a due date": "bg-amber-50 text-amber-700 border-amber-200",
 };
 
 const sourceStyles: Record<InvoiceSource, string> = {
@@ -105,7 +114,7 @@ const normalizeDate = (d: Date) => {
   return copy;
 };
 
-const computeInvoiceStatus = (invoice: Invoice, today: Date = new Date()): InvoiceStatus => {
+const computeInvoiceStatus = (invoice: Invoice, today: Date = new Date()): DocumentDisplayStatus => {
   if (invoice.status === "Paid" || invoice.status === "Archived" || invoice.status === "Needs info" || invoice.status === "Captured") {
     return invoice.status;
   }
@@ -114,7 +123,7 @@ const computeInvoiceStatus = (invoice: Invoice, today: Date = new Date()): Invoi
   const dueDate = dueRaw ? new Date(dueRaw) : null;
 
   if (!dueDate || isNaN(dueDate.getTime())) {
-    return "Upcoming";
+    return "Needs a due date";
   }
 
   const todayMid = normalizeDate(today);
@@ -1331,7 +1340,8 @@ export default function DocumentsTab({
                 <tbody className="divide-y divide-slate-100">
                   {paginatedRows.map((doc) => {
                     const computedStatus = computeInvoiceStatus(doc);
-                    const displayStatus = (doc.status as InvoiceStatus) || computedStatus;
+                    const displayStatus =
+                      computedStatus === "Needs a due date" ? computedStatus : (doc.status as InvoiceStatus) || computedStatus;
                     const statusClass = statusStyles[displayStatus] || "bg-slate-100 text-slate-700 border-slate-200";
                     const docKind = getDocKind(doc);
                     const docType = docKind === "invoice" ? "Invoice" : docKind === "receipt" ? "Receipt" : "Document";
@@ -1347,7 +1357,7 @@ export default function DocumentsTab({
                         <td className="px-3 py-3 font-semibold text-slate-900">{doc.supplier}</td>
                         <td className="px-3 py-3 text-slate-600">{displayInvoiceNumber}</td>
                         <td className="px-3 py-3 font-semibold text-slate-900">{formatCurrency(doc.amount)}</td>
-                        <td className="px-3 py-3 text-slate-600">{formatInvoiceDate(getDueDate(doc))}</td>
+                        <td className="px-3 py-3 text-slate-600">{formatDueDate(getDueDate(doc))}</td>
                         <td className="px-3 py-3">
                           <span
                             className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}
@@ -1560,7 +1570,7 @@ export default function DocumentsTab({
                         onChange={(e) => setEditValues((v) => ({ ...v, due_date: e.target.value }))}
                       />
                     ) : (
-                      <p className="font-medium text-slate-900">{formatInvoiceDate(getDueDate(selectedDoc))}</p>
+                      <p className="font-medium text-slate-900">{formatDueDate(getDueDate(selectedDoc))}</p>
                     )}
                   </div>
                   <div>

@@ -21,6 +21,7 @@ const statusStyles: Record<string, string> = {
   "Due soon": "bg-amber-50 text-amber-700 border-amber-200",
   Upcoming: "bg-[color:var(--spa-wash)] text-slate-800 border-[color:var(--spa-border)]",
   Unpaid: "bg-slate-100 text-slate-700 border-slate-200",
+  "Needs a due date": "bg-amber-50 text-amber-700 border-amber-200",
 };
 
 type Props = {
@@ -128,7 +129,7 @@ export default function DashboardTab({ invoices }: Props) {
     .filter((inv) => {
       const status = getDisplayStatus(inv, now);
       const due = getInvoiceDueDate(inv);
-      if (!due) return false;
+      if (!due) return true;
       const diff = (due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
       const inWindow = diff <= 30 && diff >= -365; // include overdue too
       return status !== "Paid" && inWindow && isInvoiceInDateRange(inv, dateRangeFilter, now);
@@ -243,7 +244,9 @@ export default function DashboardTab({ invoices }: Props) {
                       {(item as any).invoiceNumber || (item as any).invoice_number || "—"}
                     </td>
                     <td className="px-3 py-2 font-semibold text-slate-900">{currency.format(item.amount)}</td>
-                    <td className="px-3 py-2 text-slate-600">{formatDisplayDate(getInvoiceDueDate(item))}</td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {getInvoiceDueDate(item) ? formatDisplayDate(getInvoiceDueDate(item)) : "Needs a due date"}
+                    </td>
                     <td className="px-3 py-2">
                       {(() => {
                         const displayStatus = getDisplayStatus(item, now);

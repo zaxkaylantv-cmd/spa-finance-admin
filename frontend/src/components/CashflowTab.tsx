@@ -12,6 +12,7 @@ const statusStyles = {
   Upcoming: "border-emerald-100 bg-emerald-50 text-emerald-700",
   Paid: "border-slate-200 bg-slate-100 text-slate-700",
   Unpaid: "border-slate-200 bg-slate-100 text-slate-700",
+  "Needs a due date": "border-amber-100 bg-amber-50 text-amber-700",
 } as const;
 
 type Props = {
