@@ -41,6 +41,7 @@ const os = require("os");
 const { execFile } = require("child_process");
 const { getSupabaseAdminClient } = require("./supabaseClient");
 const { requireAuthFlexible, requireAuth } = require("./auth");
+const { normaliseDateStrict } = require("./util/dateNormalise");
 const { generateAuthUrl, exchangeCodeForTokens, saveRefreshToken, getTokenStatus, consumeState } = require("./google/driveAuth");
 const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
 const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
@@ -1162,11 +1163,14 @@ app.patch("/api/invoices/:id", requireAuth, async (req, res) => {
       }
     });
 
-    ["issue_date", "due_date"].forEach((key) => {
-      if (key in payload && typeof payload[key] === "string" && payload[key].trim() === "") {
-        payload[key] = null;
+    for (const key of ["issue_date", "due_date"]) {
+      if (!(key in payload)) continue;
+      const result = normaliseDateStrict(payload[key]);
+      if (!result.ok) {
+        return res.status(400).json({ error: `Invalid ${key} format. Use DD/MM/YYYY or YYYY-MM-DD.` });
       }
-    });
+      payload[key] = result.iso;
+    }
 
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({ error: "No valid fields provided" });
