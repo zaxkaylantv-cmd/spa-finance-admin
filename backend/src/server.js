@@ -46,7 +46,7 @@ const { deriveDueDateFromTerms } = require("./util/paymentTerms");
 const { generateAuthUrl, exchangeCodeForTokens, saveRefreshToken, getTokenStatus, consumeState } = require("./google/driveAuth");
 const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
 const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
-const { processOneInvoiceEmail, getMailbox } = require("./email/processOnce");
+const { processOneInvoiceEmail, getMailbox, probeMailboxExists } = require("./email/processOnce");
 const { getIngestState } = require("./email/ingestState");
 const { runIngestCycle } = require("./email/ingestWorker");
 
@@ -237,26 +237,60 @@ const maybeStartEmailWorker = () => {
   if (!(enabledFlag === "1" || enabledFlag === "true") || mode !== "process" || !["1", "true"].includes(workerFlag)) {
     return;
   }
-  const mailbox = getMailbox();
   const supabaseAdmin = getSupabaseAdminClient();
   if (!supabaseAdmin) {
     console.error("[email][worker] skipped: supabase not configured");
     return;
   }
   console.log(`[email][worker] enabled pollSeconds=${pollSeconds}`);
+  const receiptsMailbox = process.env.EMAIL_IMAP_RECEIPTS_MAILBOX || null;
+  if (!receiptsMailbox) {
+    console.log("[ingest] receipts polling disabled (EMAIL_IMAP_RECEIPTS_MAILBOX unset)");
+  }
+  // Probe once on the first tick and disable permanently on failure to avoid retry-spam.
+  let receiptsProbeDone = false;
+  let receiptsEnabled = false;
   let running = false;
   setInterval(async () => {
     if (running) return;
     running = true;
-    const start = Date.now();
     try {
-      console.log(`[email][worker] cycle start mailbox=${mailbox}`);
-      const res = await runIngestCycle({ supabaseAdmin, mailbox });
-      const dur = Date.now() - start;
-      console.log(`[email][worker] cycle end mailbox=${mailbox} duration_ms=${dur} status=${res?.status || "unknown"}`);
+      if (receiptsMailbox && !receiptsProbeDone) {
+        receiptsProbeDone = true;
+        try {
+          receiptsEnabled = await probeMailboxExists(receiptsMailbox);
+        } catch (_) {
+          receiptsEnabled = false;
+        }
+        if (receiptsEnabled) {
+          console.log(`[ingest] receipts polling enabled for "${receiptsMailbox}"`);
+        } else {
+          console.warn(`[ingest] receipts polling disabled (mailbox probe failed for "${receiptsMailbox}")`);
+        }
+      }
+
+      const mailboxes = [getMailbox()];
+      if (receiptsEnabled && !mailboxes.includes(receiptsMailbox)) {
+        mailboxes.push(receiptsMailbox);
+      }
+
+      for (const mailbox of mailboxes) {
+        const start = Date.now();
+        try {
+          console.log(`[email][worker] cycle start mailbox=${mailbox}`);
+          const res = await runIngestCycle({ supabaseAdmin, mailbox });
+          const dur = Date.now() - start;
+          console.log(
+            `[email][worker] cycle end mailbox=${mailbox} duration_ms=${dur} status=${res?.status || "unknown"}`
+          );
+        } catch (err) {
+          console.error(
+            `[ingest] cycle failed for "${mailbox}": ${err && err.message ? err.message : "unknown error"}`
+          );
+        }
+      }
     } catch (err) {
-      const dur = Date.now() - start;
-      console.error(`[email][worker] cycle error mailbox=${mailbox} duration_ms=${dur} msg=${err.message || err}`);
+      console.error(`[ingest] worker tick failed: ${err && err.message ? err.message : "unknown error"}`);
     } finally {
       running = false;
     }

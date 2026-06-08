@@ -4,6 +4,16 @@ const { simpleParser } = require("mailparser");
 const { uploadBufferToDrive } = require("../google/driveUpload");
 const { getSupabaseAdminClient } = require("../supabaseClient");
 const { extractInvoiceFields } = require("../ai/extractAndMerge");
+const { extractReceiptFields } = require("../ai/extractReceiptFields");
+
+const isReceiptSubject = (subject) => typeof subject === "string" && /receipt/i.test(subject);
+const getReceiptsMailbox = () =>
+  process.env.EMAIL_IMAP_RECEIPTS_MAILBOX || null;
+
+const isReceiptMailbox = (mailbox) => {
+  const rx = getReceiptsMailbox();
+  return Boolean(rx) && typeof mailbox === "string" && mailbox === rx;
+};
 
 const parseBool = (val, fallback) => {
   if (typeof val === "undefined" || val === null) return fallback;
@@ -202,6 +212,7 @@ const processOneInvoiceEmail = async () => {
         let file_hash = null;
         const msgId = parsed.messageId || "";
         const ingestKey = buildIngestKey({ mailbox, messageId: msgId, attachmentIndex });
+        const isReceipt = isReceiptMailbox(mailbox) || isReceiptSubject(parsed.subject);
         try {
           file_hash = hashBuffer(att.content);
           const { data: existingProcessed, error: existingErr } = await supabase
@@ -245,7 +256,7 @@ const processOneInvoiceEmail = async () => {
           const { data: duplicateFiles, error: dupErr } = await supabase
             .from("files")
             .select("id, owner_id, drive_file_id")
-            .eq("owner_type", "invoice")
+            .eq("owner_type", isReceipt ? "receipt" : "invoice")
             .eq("file_hash", file_hash)
             .limit(1);
           if (dupErr) throw dupErr;
@@ -282,7 +293,8 @@ const processOneInvoiceEmail = async () => {
           const { data: invoiceInsert, error: invErr } = await supabase
             .from("invoices")
             .insert({
-              doc_type: "invoice",
+              doc_type: isReceipt ? "receipt" : "invoice",
+              doc_kind: isReceipt ? "receipt" : "invoice",
               source: "Email",
               needs_review: true,
               archived: false,
@@ -300,9 +312,14 @@ const processOneInvoiceEmail = async () => {
           console.log(`Inserted invoice id=${invoice.id}`);
 
           try {
-            const fields = await extractInvoiceFields({ buffer: att.content, mimeType: att.contentType, filename: att.filename });
+            const fields = await (isReceipt ? extractReceiptFields : extractInvoiceFields)({
+              buffer: att.content,
+              mimeType: att.contentType,
+              filename: att.filename,
+            });
             const updatePayload = {
               supplier: fields.supplier,
+              merchant: fields.merchant,
               invoice_number: fields.invoice_number,
               issue_date: fields.issue_date,
               due_date: fields.due_date,
@@ -328,7 +345,7 @@ const processOneInvoiceEmail = async () => {
             .from("files")
             .upsert(
               {
-                owner_type: "invoice",
+                owner_type: isReceipt ? "receipt" : "invoice",
                 owner_id: invoice.id,
                 drive_file_id: driveUpload.drive_file_id,
                 web_view_link: driveUpload.webViewLink,
@@ -372,7 +389,7 @@ const processOneInvoiceEmail = async () => {
               const { data: dupExisting } = await supabase
                 .from("files")
                 .select("owner_id, drive_file_id")
-                .eq("owner_type", "invoice")
+                .eq("owner_type", isReceipt ? "receipt" : "invoice")
                 .eq("file_hash", file_hash)
                 .limit(1);
               const existing = dupExisting && dupExisting.length ? dupExisting[0] : null;
@@ -450,6 +467,32 @@ const buildClient = () => {
   });
 };
 
+// Read-only check that a mailbox exists / can be opened on the IMAP server.
+// Returns true if openable, false otherwise. Never throws. No secret logging.
+const probeMailboxExists = async (mailbox) => {
+  if (typeof mailbox !== "string" || !mailbox.trim()) return false;
+  let client = null;
+  try {
+    client = buildClient();
+    await withTimeout(client.connect(), IMAP_STEP_TIMEOUT_MS, "IMAP probe connect");
+    await withTimeout(client.mailboxOpen(mailbox, { readOnly: true }), IMAP_STEP_TIMEOUT_MS, "IMAP probe open mailbox");
+    return true;
+  } catch (err) {
+    console.warn(
+      `[ingest] mailbox probe failed for "${mailbox}": ${err && err.message ? err.message : "unknown error"}`
+    );
+    return false;
+  } finally {
+    if (client) {
+      try {
+        await withTimeout(client.logout(), IMAP_STEP_TIMEOUT_MS, "IMAP probe logout");
+      } catch (_) {
+        /* best-effort close */
+      }
+    }
+  }
+};
+
 const fetchSourceWithRetry = async ({ client, uid, mailbox, maxAttempts = 2 }) => {
   const doFetch = async (imapClient) => {
     const sourceIterator = imapClient.fetch({ uid }, { source: true });
@@ -508,6 +551,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
     let file_hash = null;
     const msgId = parsed.messageId || "";
     const ingestKey = buildIngestKey({ mailbox, messageId: msgId, attachmentIndex });
+    const isReceipt = isReceiptMailbox(mailbox) || isReceiptSubject(parsed.subject);
     try {
       file_hash = hashBuffer(att.content);
       const { data: existingProcessed, error: existingErr } = await supabase
@@ -527,7 +571,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
       const { data: duplicateFiles, error: dupErr } = await supabase
         .from("files")
         .select("id, owner_id, drive_file_id")
-        .eq("owner_type", "invoice")
+        .eq("owner_type", isReceipt ? "receipt" : "invoice")
         .eq("file_hash", file_hash)
         .limit(1);
       if (dupErr) throw dupErr;
@@ -590,7 +634,8 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
       const { data: invoiceInsert, error: invErr } = await supabase
         .from("invoices")
         .insert({
-          doc_type: "invoice",
+          doc_type: isReceipt ? "receipt" : "invoice",
+          doc_kind: isReceipt ? "receipt" : "invoice",
           source: "Email",
           needs_review: true,
           archived: false,
@@ -608,9 +653,14 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
       console.log(`Inserted invoice id=${invoice.id}`);
 
       try {
-        const fields = await extractInvoiceFields({ buffer: att.content, mimeType: att.contentType, filename: att.filename });
+        const fields = await (isReceipt ? extractReceiptFields : extractInvoiceFields)({
+          buffer: att.content,
+          mimeType: att.contentType,
+          filename: att.filename,
+        });
         const updatePayload = {
           supplier: fields.supplier,
+          merchant: fields.merchant,
           invoice_number: fields.invoice_number,
           issue_date: fields.issue_date,
           due_date: fields.due_date,
@@ -636,7 +686,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
         .from("files")
         .upsert(
           {
-            owner_type: "invoice",
+            owner_type: isReceipt ? "receipt" : "invoice",
             owner_id: invoice.id,
             drive_file_id: driveUpload.drive_file_id,
             web_view_link: driveUpload.webViewLink,
@@ -680,7 +730,7 @@ const processAttachmentsForMessage = async ({ supabase, parsed, mailbox, uid, re
           const { data: dupExisting } = await supabase
             .from("files")
             .select("owner_id, drive_file_id")
-            .eq("owner_type", "invoice")
+            .eq("owner_type", isReceipt ? "receipt" : "invoice")
             .eq("file_hash", file_hash)
             .limit(1);
           const existing = dupExisting && dupExisting.length ? dupExisting[0] : null;
@@ -1060,3 +1110,4 @@ const processMailboxBatch = async ({
 };
 
 module.exports.processMailboxBatch = processMailboxBatch;
+module.exports.probeMailboxExists = probeMailboxExists;
