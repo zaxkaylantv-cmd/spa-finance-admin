@@ -167,6 +167,8 @@ type Props = {
   showArchivedDocuments?: boolean;
   onToggleShowArchived?: (value: boolean) => void;
   onUnarchiveInvoice?: (id: number | string) => void;
+  onMarkAsReceipt?: (id: number | string) => void;
+  onMarkAsInvoice?: (id: number | string) => void;
   onInvoiceUpdated?: (invoice: Invoice) => void;
   appKey: string;
 };
@@ -180,6 +182,8 @@ export default function DocumentsTab({
   showArchivedDocuments,
   onToggleShowArchived,
   onUnarchiveInvoice,
+  onMarkAsReceipt,
+  onMarkAsInvoice,
   onInvoiceUpdated,
   appKey,
 }: Props) {
@@ -1860,22 +1864,48 @@ export default function DocumentsTab({
                     Un-archive
                   </button>
                 ) : (
-                  <button
-                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                    onClick={() => {
-                      if (onArchiveInvoice) {
-                        onArchiveInvoice(selectedDoc.id);
-                        if (getDocKind(selectedDoc) === "receipt") {
-                          setReceipts((prev) => prev.filter((rec) => rec.id !== selectedDoc.id));
+                  <>
+                    {getDocKind(selectedDoc) === "invoice" && (
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                        onClick={() => {
+                          if (!window.confirm("Move this document to Receipts? The system will re-read it as a receipt.")) return;
+                          onMarkAsReceipt?.(selectedDoc.id);
+                          setSelectedDocId(null);
+                        }}
+                      >
+                        Mark as receipt
+                      </button>
+                    )}
+                    {getDocKind(selectedDoc) === "receipt" && (
+                      <button
+                        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                        onClick={() => {
+                          if (!window.confirm("Move this document back to Invoices?")) return;
+                          onMarkAsInvoice?.(selectedDoc.id);
+                          setSelectedDocId(null);
+                        }}
+                      >
+                        Mark as invoice
+                      </button>
+                    )}
+                    <button
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                      onClick={() => {
+                        if (onArchiveInvoice) {
+                          onArchiveInvoice(selectedDoc.id);
+                          if (getDocKind(selectedDoc) === "receipt") {
+                            setReceipts((prev) => prev.filter((rec) => rec.id !== selectedDoc.id));
+                          }
+                        } else {
+                          onArchive(selectedDoc.id);
                         }
-                      } else {
-                        onArchive(selectedDoc.id);
-                      }
-                      setSelectedDocId(null);
-                    }}
-                  >
-                    Archive
-                  </button>
+                        setSelectedDocId(null);
+                      }}
+                    >
+                      Archive
+                    </button>
+                  </>
                 )}
                 <button className="text-slate-700 hover:text-slate-900" onClick={() => setSelectedDocId(null)}>
                   Close

@@ -98,4 +98,23 @@ const uploadBufferToDrive = async ({ buffer, mimeType, name }) => {
   };
 };
 
-module.exports = { uploadFileToDrive, uploadBufferToDrive };
+const MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
+
+const downloadDriveFileToBuffer = async (driveFileId) => {
+  if (typeof driveFileId !== "string" || !driveFileId.trim()) {
+    throw new Error("invalid_drive_file_id");
+  }
+
+  const { drive } = await createDriveClient();
+  const response = await drive.files.get(
+    { fileId: driveFileId, alt: "media", supportsAllDrives: true },
+    { responseType: "arraybuffer" }
+  );
+  const buffer = Buffer.from(response.data);
+  if (buffer.length > MAX_DOWNLOAD_BYTES) {
+    throw new Error("drive_file_too_large");
+  }
+  return buffer;
+};
+
+module.exports = { uploadFileToDrive, uploadBufferToDrive, downloadDriveFileToBuffer };

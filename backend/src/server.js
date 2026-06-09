@@ -33,6 +33,7 @@ const fs = require("fs");
 const { PDFParse } = require("pdf-parse");
 const { extractInvoiceFromText, extractInvoiceFromImage } = require("./ai/invoiceExtractor");
 const { extractReceiptFromImage } = require("./ai/receiptExtractor");
+const { extractReceiptFields } = require("./ai/extractReceiptFields");
 const { buildLocalFileRef } = require("./storage/localStorage");
 const { generateInvoiceActions } = require("./ai/actions");
 const OpenAI = require("openai");
@@ -44,7 +45,7 @@ const { requireAuthFlexible, requireAuth } = require("./auth");
 const { normaliseDateOrNull, normaliseDateStrict } = require("./util/dateNormalise");
 const { deriveDueDateFromTerms } = require("./util/paymentTerms");
 const { generateAuthUrl, exchangeCodeForTokens, saveRefreshToken, getTokenStatus, consumeState } = require("./google/driveAuth");
-const { uploadFileToDrive, uploadBufferToDrive } = require("./google/driveUpload");
+const { uploadFileToDrive, uploadBufferToDrive, downloadDriveFileToBuffer } = require("./google/driveUpload");
 const { startEmailDiscoveryPoller, getEmailDiscoveryStatus } = require("./email/imapDiscovery");
 const { processOneInvoiceEmail, getMailbox, probeMailboxExists } = require("./email/processOnce");
 const { getIngestState } = require("./email/ingestState");
@@ -1166,6 +1167,180 @@ app.post("/api/invoices/:id/unarchive", requireAuth, async (req, res) => {
     res.json({ success: true, invoice: data });
   } catch (err) {
     console.error("Failed to unarchive invoice", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/invoices/:id/mark-as-receipt", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid invoice id" });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchError) {
+      console.error("mark-as-receipt: invoice fetch failed", id);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!existing) return res.status(404).json({ error: "Invoice not found" });
+
+    const now = new Date().toISOString();
+    const { error: classificationError } = await supabase
+      .from("invoices")
+      .update({ doc_type: "receipt", doc_kind: "receipt", updated_at: now })
+      .eq("id", id);
+    if (classificationError) {
+      console.error("mark-as-receipt: classification update failed", id);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+
+    const { error: filesFlipError } = await supabase
+      .from("files")
+      .update({ owner_type: "receipt", updated_at: now })
+      .eq("owner_id", id)
+      .eq("owner_type", "invoice");
+    if (filesFlipError) {
+      console.error("mark-as-receipt: files flip failed", id);
+    }
+
+    let reextracted = "applied";
+    const { data: fileRows, error: filesFetchError } = await supabase
+      .from("files")
+      .select("drive_file_id, mime_type, original_filename")
+      .eq("owner_id", id)
+      .eq("owner_type", "receipt");
+    if (filesFetchError) {
+      console.error("mark-as-receipt: file lookup failed", id);
+      reextracted = "skipped_no_file";
+    } else {
+      const primary = (fileRows || []).find(
+        (row) => typeof row.drive_file_id === "string" && row.drive_file_id.trim()
+      );
+      if (!primary) {
+        reextracted = "skipped_no_file";
+      } else {
+        let buffer = null;
+        try {
+          buffer = await downloadDriveFileToBuffer(primary.drive_file_id);
+        } catch (e) {
+          console.error("mark-as-receipt: drive download failed for invoice", id, e && e.message);
+          reextracted = "skipped_download_failed";
+        }
+
+        if (buffer) {
+          const fields = await extractReceiptFields({
+            buffer,
+            mimeType: primary.mime_type || null,
+            filename: primary.original_filename || null,
+          });
+          const hasSignal = fields.merchant != null || fields.amount != null;
+          if (!hasSignal) {
+            reextracted = "no_signal";
+          } else {
+            const updateObj = {};
+            if (fields.merchant != null) updateObj.merchant = fields.merchant;
+            if (fields.supplier != null) updateObj.supplier = fields.supplier;
+            if (fields.amount != null) updateObj.amount = fields.amount;
+            if (fields.vat_amount != null) updateObj.vat_amount = fields.vat_amount;
+            if (fields.issue_date != null) updateObj.issue_date = fields.issue_date;
+            if (fields.confidence != null) updateObj.confidence = fields.confidence;
+            if (fields.extracted_source != null) updateObj.extracted_source = fields.extracted_source;
+            if (
+              fields.extracted_json &&
+              typeof fields.extracted_json === "object" &&
+              Object.keys(fields.extracted_json).length > 0
+            ) {
+              updateObj.extracted_json = fields.extracted_json;
+            }
+            if (fields.status != null) updateObj.status = fields.status;
+            updateObj.needs_review = Boolean(fields.needs_review);
+            updateObj.updated_at = new Date().toISOString();
+
+            const { error: reextractUpdateError } = await supabase
+              .from("invoices")
+              .update(updateObj)
+              .eq("id", id)
+              .eq("doc_type", "receipt");
+            if (reextractUpdateError) {
+              console.error("mark-as-receipt: re-extraction update failed", id);
+            }
+          }
+        }
+      }
+    }
+
+    const { data: finalRow, error: finalFetchError } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (finalFetchError) {
+      console.error("mark-as-receipt: final fetch failed", id);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!finalRow) return res.status(404).json({ error: "Invoice not found" });
+    res.json({ success: true, invoice: finalRow, reextracted });
+  } catch (_err) {
+    console.error("mark-as-receipt: unexpected failure", id);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/invoices/:id/mark-as-invoice", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid invoice id" });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchError) {
+      console.error("mark-as-invoice: invoice fetch failed", id);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!existing) return res.status(404).json({ error: "Invoice not found" });
+
+    const now = new Date().toISOString();
+    const { error: classificationError } = await supabase
+      .from("invoices")
+      .update({ doc_type: "invoice", doc_kind: "invoice", updated_at: now })
+      .eq("id", id);
+    if (classificationError) {
+      console.error("mark-as-invoice: classification update failed", id);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+
+    const { error: filesFlipError } = await supabase
+      .from("files")
+      .update({ owner_type: "invoice", updated_at: now })
+      .eq("owner_id", id)
+      .eq("owner_type", "receipt");
+    if (filesFlipError) {
+      console.error("mark-as-invoice: files flip failed", id);
+    }
+
+    const { data: finalRow, error: finalFetchError } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (finalFetchError) {
+      console.error("mark-as-invoice: final fetch failed", id);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!finalRow) return res.status(404).json({ error: "Invoice not found" });
+    res.json({ success: true, invoice: finalRow });
+  } catch (_err) {
+    console.error("mark-as-invoice: unexpected failure", id);
     res.status(500).json({ error: "Internal server error" });
   }
 });

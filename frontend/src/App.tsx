@@ -223,6 +223,24 @@ export default function App() {
     }
   };
 
+  const handleMarkAsReceipt = async (id: number | string) => {
+    try {
+      await tryFetchApi(`/api/invoices/${id}/mark-as-receipt`, { method: "POST" });
+      await loadInvoices();
+    } catch (err) {
+      console.warn("Mark-as-receipt request failed; document lists unchanged", err);
+    }
+  };
+
+  const handleMarkAsInvoice = async (id: number | string) => {
+    try {
+      await tryFetchApi(`/api/invoices/${id}/mark-as-invoice`, { method: "POST" });
+      await loadInvoices();
+    } catch (err) {
+      console.warn("Mark-as-invoice request failed; document lists unchanged", err);
+    }
+  };
+
   const tabs: { key: TabKey; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
     { key: "documents", label: "Invoices & Receipts" },
@@ -337,6 +355,8 @@ export default function App() {
             showArchivedDocuments={showArchivedDocuments}
             onToggleShowArchived={setShowArchivedDocuments}
             onUnarchiveInvoice={handleUnarchiveInvoice}
+            onMarkAsReceipt={handleMarkAsReceipt}
+            onMarkAsInvoice={handleMarkAsInvoice}
             appKey={appKey}
           />
         )}
