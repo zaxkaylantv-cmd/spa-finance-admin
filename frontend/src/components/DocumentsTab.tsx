@@ -1064,7 +1064,7 @@ export default function DocumentsTab({
                           <p className="text-sm font-semibold text-slate-800">Email ingestion</p>
                           <p className="text-xs text-slate-500">Key inbox status.</p>
                           <p className="text-xs text-slate-500">
-                            Auto-import works for emails with PDF attachments. If an email only contains a link (no PDF), upload the invoice manually.
+                            Auto-import works for emails with PDF or image attachments. If an email arrives without a supported attachment, the system now creates a Missing attachment item so it can be reviewed manually. If the invoice is only available through a link, upload the invoice file manually once downloaded.
                           </p>
                         </div>
                         <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-700">
