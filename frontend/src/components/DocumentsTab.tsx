@@ -9,6 +9,7 @@ void apiUrl;
 const currency = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 });
 const DOC_PAGE_SIZE = 15;
 const formatCurrency = (value: any) => {
+  if (value === null || typeof value === "undefined" || (typeof value === "string" && value.trim() === "")) return "—";
   const num = Number(value);
   if (!Number.isFinite(num)) return "—";
   return currency.format(num);

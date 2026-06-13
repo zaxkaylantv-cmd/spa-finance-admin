@@ -60,6 +60,151 @@ const shouldProcess = () => {
 const hashBuffer = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 const buildIngestKey = ({ mailbox, messageId, attachmentIndex }) =>
   crypto.createHash("sha256").update(`${mailbox}|${messageId}|${attachmentIndex}`).digest("hex");
+const boundedText = (value, maxLength) => {
+  if (typeof value === "undefined" || value === null) return "";
+  return String(value).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
+};
+const buildNoAttachmentIngestKey = ({ mailbox, messageId, uid }) => {
+  const identity = messageId ? `message-id:${messageId}` : `imap-uid:${uid}`;
+  return crypto.createHash("sha256").update(`no-supported-attachment|${mailbox}|${identity}`).digest("hex");
+};
+const findProcessedEmail = async ({ supabase, mailbox, messageId, uid, attachmentIndex }) => {
+  const findBy = async (column, value) => {
+    if (typeof value === "undefined" || value === null || value === "") return null;
+    let query = supabase.from("processed_emails").select("id, invoice_id").eq("mailbox", mailbox).eq(column, value);
+    if (typeof attachmentIndex === "number") {
+      query = query.eq("attachment_index", attachmentIndex);
+    }
+    const { data, error } = await query.limit(1);
+    if (error) throw error;
+    return data && data.length ? data[0] : null;
+  };
+  return (await findBy("message_id", messageId)) || (await findBy("imap_uid", uid));
+};
+const getSenderMetadata = (from) => {
+  const addresses = Array.isArray(from) ? from : Array.isArray(from?.value) ? from.value : [];
+  const first = addresses[0] || {};
+  return {
+    from_name: boundedText(first.name, 255) || null,
+    from_address: boundedText(first.address, 320) || null,
+  };
+};
+const recordNoSupportedAttachment = async ({ supabase, mailbox, uid, messageId, subject, from, emailDate }) => {
+  if (mailbox !== getMailbox()) return null;
+
+  const traceMailbox = boundedText(mailbox, 255);
+  const safeMessageId = boundedText(messageId, 998);
+  const safeSubject = boundedText(subject, 500);
+  const sender = getSenderMetadata(from);
+  const parsedDate = emailDate ? new Date(emailDate) : null;
+  const safeEmailDate = parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate.toISOString() : null;
+  const supplier = boundedText(sender.from_name || sender.from_address || safeSubject || "Unknown supplier", 255);
+  const ingestKey = buildNoAttachmentIngestKey({ mailbox, messageId: safeMessageId, uid });
+  const trace = {
+    mailbox: traceMailbox,
+    imap_uid: uid,
+    message_id: safeMessageId || null,
+    subject: safeSubject || null,
+    from_name: sender.from_name,
+    from_address: sender.from_address,
+    email_date: safeEmailDate,
+    reason: "no_supported_attachment",
+    supported_attachment_count: 0,
+  };
+
+  const findInvoice = async () => {
+    const { data, error } = await supabase.from("invoices").select("id").eq("ingest_key", ingestKey).limit(1);
+    if (error) throw error;
+    return data && data.length ? data[0] : null;
+  };
+
+  let invoice = await findInvoice();
+  if (!invoice) {
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("invoices")
+      .insert({
+        doc_type: "invoice",
+        doc_kind: "invoice",
+        source: "email_no_attachment",
+        extracted_source: "email_no_attachment",
+        status: "Needs info",
+        needs_review: true,
+        archived: false,
+        supplier,
+        merchant: null,
+        invoice_number: null,
+        issue_date: null,
+        due_date: null,
+        amount: null,
+        vat_amount: null,
+        category: "Uncategorised",
+        week_label: null,
+        confidence: null,
+        file_ref: null,
+        file_kind: null,
+        notes: "Email arrived in the Invoices mailbox, but no supported PDF/image attachment was found.",
+        extracted_json: trace,
+        ingest_key: ingestKey,
+        created_at: now,
+        updated_at: now,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      if (error.code !== "23505") throw error;
+      invoice = await findInvoice();
+      if (!invoice) throw error;
+    } else {
+      invoice = data;
+    }
+  }
+
+  let processed = await findProcessedEmail({
+    supabase,
+    mailbox,
+    messageId: safeMessageId,
+    uid,
+    attachmentIndex: 0,
+  });
+  if (processed?.invoice_id && String(processed.invoice_id) !== String(invoice.id)) {
+    throw new Error("No-attachment processed email is linked to a different invoice");
+  }
+  if (processed && !processed.invoice_id) {
+    const { error } = await supabase.from("processed_emails").update({ invoice_id: invoice.id }).eq("id", processed.id);
+    if (error) throw error;
+  }
+  if (!processed) {
+    const { error } = await supabase.from("processed_emails").insert({
+      mailbox,
+      imap_uid: uid,
+      message_id: safeMessageId,
+      attachment_index: 0,
+      file_hash: null,
+      drive_file_id: null,
+      invoice_id: invoice.id,
+      status: "processed",
+      error: null,
+    });
+    if (error) {
+      if (error.code !== "23505") throw error;
+      processed = await findProcessedEmail({
+        supabase,
+        mailbox,
+        messageId: safeMessageId,
+        uid,
+        attachmentIndex: 0,
+      });
+      if (!processed || (processed.invoice_id && String(processed.invoice_id) !== String(invoice.id))) throw error;
+      if (!processed.invoice_id) {
+        const { error: linkError } = await supabase.from("processed_emails").update({ invoice_id: invoice.id }).eq("id", processed.id);
+        if (linkError) throw linkError;
+      }
+    }
+  }
+
+  return invoice.id;
+};
 const withTimeout = (promise, ms, label) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -129,14 +274,8 @@ const processOneInvoiceEmail = async () => {
         const envelopeFetched = await withTimeout(envelopeIterator.next(), IMAP_STEP_TIMEOUT_MS, "IMAP fetch envelope");
         if (!envelopeFetched || !envelopeFetched.value || !envelopeFetched.value.envelope) continue;
         const msgId = envelopeFetched.value.envelope?.messageId || "";
-        const { data: existingMsg, error: existingMsgErr } = await supabase
-          .from("processed_emails")
-          .select("id")
-          .or(`message_id.eq.${msgId || ""},imap_uid.eq.${candidateUid}`)
-          .eq("mailbox", mailbox)
-          .limit(1);
-        if (existingMsgErr) throw existingMsgErr;
-        if (existingMsg && existingMsg.length) {
+        const existingMsg = await findProcessedEmail({ supabase, mailbox, messageId: msgId, uid: candidateUid });
+        if (existingMsg) {
           continue;
         }
         const fetchSourceOnce = async () => {
@@ -186,6 +325,20 @@ const processOneInvoiceEmail = async () => {
           return ct === "application/pdf" || ct.startsWith("image/");
         });
         if (!attachmentsCandidate.length) {
+          const placeholderId = await recordNoSupportedAttachment({
+            supabase,
+            mailbox,
+            uid: candidateUid,
+            messageId: parsedCandidate.messageId || msgId,
+            subject: parsedCandidate.subject,
+            from: parsedCandidate.from,
+            emailDate: parsedCandidate.date || envelopeFetched.value.envelope?.date,
+          });
+          if (placeholderId) {
+            result.processed += 1;
+            result.invoice_ids.push(placeholderId);
+            console.log(`[email][batch] uid=${candidateUid} outcome=no_attachment_placeholder_created invoice_id=${placeholderId}`);
+          }
           continue;
         }
         uid = candidateUid;
@@ -195,8 +348,10 @@ const processOneInvoiceEmail = async () => {
         break;
       }
       if (!uid || !rawSource || !parsed) {
-        result.skipped += 1;
-        console.log(`[email][batch] uid=${uid || "n/a"} skip_reason=no_attachments`);
+        if (!result.processed) {
+          result.skipped += 1;
+          console.log(`[email][batch] uid=${uid || "n/a"} skip_reason=no_attachments`);
+        }
         return result;
       }
       const attachments = (parsed.attachments || []).filter((att) => {
@@ -961,14 +1116,8 @@ const processMailboxBatch = async ({
           break;
         }
         const msgId = envelopeFetched.envelope?.messageId || "";
-        const { data: existingMsg, error: existingMsgErr } = await supabase
-          .from("processed_emails")
-          .select("id")
-          .or(`message_id.eq.${msgId || ""},imap_uid.eq.${uid}`)
-          .eq("mailbox", envMailbox)
-          .limit(1);
-        if (existingMsgErr) throw existingMsgErr;
-        if (existingMsg && existingMsg.length) {
+        const existingMsg = await findProcessedEmail({ supabase, mailbox: envMailbox, messageId: msgId, uid });
+        if (existingMsg) {
           result.skipped += 1;
           console.log(`[email][batch] uid=${uid} skip_reason=already_processed`);
           result.new_last_uid = uid;
@@ -1006,7 +1155,22 @@ const processMailboxBatch = async ({
             );
           });
           if (!selectableSummary.length) {
-            result.skipped += 1;
+            const placeholderId = await recordNoSupportedAttachment({
+              supabase,
+              mailbox: envMailbox,
+              uid,
+              messageId: msgId,
+              subject: envelopeFetched.envelope?.subject,
+              from: envelopeFetched.envelope?.from,
+              emailDate: envelopeFetched.envelope?.date,
+            });
+            if (placeholderId) {
+              result.processed += 1;
+              result.invoice_ids.push(placeholderId);
+              console.log(`[email][batch] uid=${uid} outcome=no_attachment_placeholder_created invoice_id=${placeholderId}`);
+            } else {
+              result.skipped += 1;
+            }
             const bodyStructure = envelopeFetched.bodyStructure;
             console.log(
               `[email][batch] uid=${uid} bs_present=${!!bodyStructure} bs_keys=${
@@ -1019,7 +1183,22 @@ const processMailboxBatch = async ({
           }
           preferred = choosePreferredPart(selectableSummary.map((p) => ({ ...p, partID: p.path, mime: p.mime, filename: p.filename, encoding: p.encoding })));
           if (!preferred || !preferred.partID) {
-            result.skipped += 1;
+            const placeholderId = await recordNoSupportedAttachment({
+              supabase,
+              mailbox: envMailbox,
+              uid,
+              messageId: msgId,
+              subject: envelopeFetched.envelope?.subject,
+              from: envelopeFetched.envelope?.from,
+              emailDate: envelopeFetched.envelope?.date,
+            });
+            if (placeholderId) {
+              result.processed += 1;
+              result.invoice_ids.push(placeholderId);
+              console.log(`[email][batch] uid=${uid} outcome=no_attachment_placeholder_created invoice_id=${placeholderId}`);
+            } else {
+              result.skipped += 1;
+            }
             const bodyStructure = envelopeFetched.bodyStructure;
             console.log(
               `[email][batch] uid=${uid} bs_present=${!!bodyStructure} bs_keys=${
