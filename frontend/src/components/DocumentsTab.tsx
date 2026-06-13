@@ -107,6 +107,9 @@ const normalizeSource = (value: unknown): InvoiceSource => {
   return "Upload";
 };
 
+const getSourceLabel = (value: unknown) =>
+  typeof value === "string" && value.toLowerCase() === "email_no_attachment" ? "Missing attachment" : normalizeSource(value);
+
 const DOCUMENTS_RANGE_KEY = "cashflow_documents_date_range";
 
 const normalizeDate = (d: Date) => {
@@ -1275,9 +1278,9 @@ export default function DocumentsTab({
                     {paginatedRows.map((doc) => {
                       const receiptStatus = (doc as any).status || "Captured";
                       const statusClass = statusStyles[receiptStatus as InvoiceStatus] || "bg-slate-100 text-slate-700 border-slate-200";
-                      const receiptSource = normalizeSource(
-                        (doc as any).source || (doc as any).owner_type || (doc as any).ownerType || "Upload",
-                      );
+                      const receiptSourceValue =
+                        (doc as any).source || (doc as any).owner_type || (doc as any).ownerType || "Upload";
+                      const receiptSource = normalizeSource(receiptSourceValue);
                       const sourceClass = sourceStyles[receiptSource] || "bg-slate-100 text-slate-700 border-slate-200";
                       const receiptLabel =
                         (doc as any).receipt_number ||
@@ -1312,7 +1315,7 @@ export default function DocumentsTab({
                           <td className="px-3 py-3 text-slate-600">{(doc as any).category || "Other"}</td>
                           <td className="px-3 py-3">
                             <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceClass}`}>
-                              {receiptSource}
+                              {getSourceLabel(receiptSourceValue)}
                             </span>
                           </td>
                           <td className="px-3 py-3">
@@ -1375,7 +1378,7 @@ export default function DocumentsTab({
                           <span
                             className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceStyles[normalizeSource(doc.source)]}`}
                           >
-                            {normalizeSource(doc.source)}
+                            {getSourceLabel(doc.source)}
                           </span>
                         </td>
                         <td className="px-3 py-3">
@@ -1532,7 +1535,7 @@ export default function DocumentsTab({
                   <span
                     className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceStyles[normalizeSource(selectedDoc.source)]}`}
                   >
-                    {normalizeSource(selectedDoc.source)}
+                    {getSourceLabel(selectedDoc.source)}
                   </span>
                 </div>
                 <div className="text-right">
