@@ -157,18 +157,18 @@ export default function App() {
     [invoices],
   );
 
-  const markAsPaid = async (id: string) => {
-    setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, status: "Paid" as InvoiceStatus } : inv)));
+  const markAsPaid = async (id: string): Promise<boolean> => {
     try {
       const res = await tryFetchApi(`/api/invoices/${id}/mark-paid`, { method: "POST" });
-      const updated = await res.json();
-      if (updated?.id) {
-        setInvoices((prev) =>
-          prev.map((inv) => (inv.id === id ? { ...inv, ...updated, id: String(updated.id) } : inv)),
-        );
+      const data = await res.json();
+      if (!data?.success || !data?.invoice?.id) {
+        throw new Error("Mark paid did not return an updated invoice");
       }
+      await loadInvoices();
+      return true;
     } catch (err) {
-      console.warn("Mark paid failed; keeping local change", err);
+      console.warn("Mark paid failed; invoice lists unchanged", err);
+      return false;
     }
   };
 

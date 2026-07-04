@@ -164,7 +164,7 @@ type AiStatus = {
 
 type Props = {
   invoices: Invoice[];
-  onMarkPaid: (id: string) => void;
+  onMarkPaid: (id: string) => Promise<boolean>;
   onArchive: (id: string) => void;
   onInvoiceCreatedFromUpload?: (invoice: Invoice) => void;
   onArchiveInvoice?: (id: number | string) => void;
@@ -194,6 +194,7 @@ export default function DocumentsTab({
   const now = useMemo(() => new Date(), []);
 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [savingPaidId, setSavingPaidId] = useState<string | null>(null);
   const [emailConnected, setEmailConnected] = useState<boolean>(true);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -656,6 +657,22 @@ export default function DocumentsTab({
     return true;
   };
   void ensureAiReady;
+
+  const handleInvoiceRowPaid = async (id: string) => {
+    if (savingPaidId === id) return;
+    if (!window.confirm("Mark this invoice as paid?")) return;
+    setSavingPaidId(id);
+    try {
+      const succeeded = await onMarkPaid(id);
+      if (!succeeded) {
+        window.alert("Could not mark this invoice as paid. Please try again.");
+      }
+    } catch {
+      window.alert("Could not mark this invoice as paid. Please try again.");
+    } finally {
+      setSavingPaidId(null);
+    }
+  };
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
@@ -1315,14 +1332,14 @@ export default function DocumentsTab({
                           <td className="px-3 py-3 text-slate-600">{(doc as any).category || "Other"}</td>
                           <td className="px-3 py-3">
                             <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceClass}`}>
-                              {getSourceLabel(receiptSourceValue)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3">
-                            <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
-                              View
-                            </button>
-                          </td>
+	                              {getSourceLabel(receiptSourceValue)}
+	                            </span>
+	                          </td>
+	                        <td className="px-3 py-3">
+	                          <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
+	                            View
+	                          </button>
+	                        </td>
                         </tr>
                       );
                     })}
@@ -1378,14 +1395,26 @@ export default function DocumentsTab({
                           <span
                             className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${sourceStyles[normalizeSource(doc.source)]}`}
                           >
-                            {getSourceLabel(doc.source)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
-                            View
-                          </button>
-                        </td>
+	                            {getSourceLabel(doc.source)}
+	                          </span>
+	                        </td>
+	                        <td className="px-3 py-3">
+	                          <div className="flex items-center gap-2">
+	                            <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
+	                              View
+	                            </button>
+	                            {getDocKind(doc) === "invoice" && (
+	                              <button
+	                                type="button"
+	                                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+	                                onClick={() => void handleInvoiceRowPaid(doc.id)}
+	                                disabled={savingPaidId === doc.id}
+	                              >
+	                                {savingPaidId === doc.id ? "Saving..." : "Paid"}
+	                              </button>
+	                            )}
+	                          </div>
+	                        </td>
                       </tr>
                     );
                   })}

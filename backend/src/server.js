@@ -7,7 +7,6 @@ const path = require("path");
 const crypto = require("crypto");
 const {
   getInvoices,
-  markInvoicePaid,
   archiveInvoice,
   insertInvoice,
   insertReceipt,
@@ -1114,9 +1113,21 @@ app.post("/api/staff/:id/reactivate", requireAuth, async (req, res) => {
 app.post("/api/invoices/:id/mark-paid", requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const updated = await markInvoicePaid(id);
-    if (!updated) return res.status(404).json({ error: "Invoice not found" });
-    res.json(updated);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid invoice id" });
+    const supabase = getSupabaseAdminClient();
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { data, error } = await supabase
+      .from("invoices")
+      .update({ status: "Paid", updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to mark invoice as paid", error.message);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    if (!data) return res.status(404).json({ error: "Invoice not found" });
+    res.json({ success: true, invoice: data });
   } catch (err) {
     console.error("Failed to mark invoice as paid", err);
     res.status(500).json({ error: "Internal server error" });
