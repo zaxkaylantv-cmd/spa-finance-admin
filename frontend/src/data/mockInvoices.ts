@@ -17,6 +17,7 @@ export interface Invoice {
   source: InvoiceSource;
   weekId: string;
   doc_type?: string;
+  archived?: boolean | number | null;
   subtotal: number;
   tax: number;
   vat_amount?: number | string | null;

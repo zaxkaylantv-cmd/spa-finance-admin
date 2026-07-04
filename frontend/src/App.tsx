@@ -156,6 +156,10 @@ export default function App() {
     () => invoices.filter((inv) => !isArchived(inv) && inv.status !== "Archived"),
     [invoices],
   );
+  const archivedInvoices = useMemo(
+    () => invoices.filter((inv) => isArchived(inv) || inv.status === "Archived"),
+    [invoices],
+  );
 
   const markAsPaid = async (id: string): Promise<boolean> => {
     try {
@@ -346,7 +350,7 @@ export default function App() {
         {activeTab === "dashboard" && <DashboardTab invoices={activeInvoices} />}
         {activeTab === "documents" && (
           <DocumentsTab
-            invoices={showArchivedDocuments ? invoices : activeInvoices}
+            invoices={showArchivedDocuments ? archivedInvoices : activeInvoices}
             onMarkPaid={markAsPaid}
             onArchive={archiveInvoice}
             onInvoiceCreatedFromUpload={handleInvoiceCreatedFromUpload}

@@ -42,6 +42,11 @@ const getDocKind = (doc: any): "invoice" | "receipt" | "other" => {
   if (lower.includes("invoice")) return "invoice";
   return "other";
 };
+const canMarkPaidFromRow = (doc: Invoice): boolean => {
+  const status = String(doc.status || "").trim().toLowerCase();
+  const archived = doc.archived === true || status === "archived";
+  return getDocKind(doc) === "invoice" && !archived && status !== "paid";
+};
 const formatRelativeTime = (value: string | null | undefined) => {
   if (!value) return "—";
   const ts = new Date(value).getTime();
@@ -1405,14 +1410,14 @@ export default function DocumentsTab({
 	                            <button className="text-cyan-700 hover:text-cyan-800" onClick={() => setSelectedDocId(doc.id)}>
 	                              View
 	                            </button>
-	                            {getDocKind(doc) === "invoice" && (
+	                            {canMarkPaidFromRow(doc) && (
 	                              <button
 	                                type="button"
 	                                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
 	                                onClick={() => void handleInvoiceRowPaid(doc.id)}
 	                                disabled={savingPaidId === doc.id}
 	                              >
-	                                {savingPaidId === doc.id ? "Saving..." : "Paid"}
+	                                {savingPaidId === doc.id ? "Saving..." : "Mark paid"}
 	                              </button>
 	                            )}
 	                          </div>
