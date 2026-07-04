@@ -11,7 +11,6 @@ export default function SettingsTab({ appKey: _appKey, onAppKeyChange: _onAppKey
     { value: "invoices", label: "Invoices (recommended)" },
     { value: "receipts", label: "Receipts" },
     { value: "all", label: "All documents" },
-    { value: "tips", label: "Tips & Gratuities" },
   ];
 
   const [emailConnected, setEmailConnected] = useState(true);

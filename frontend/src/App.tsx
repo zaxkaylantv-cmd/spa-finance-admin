@@ -249,7 +249,6 @@ export default function App() {
     { key: "dashboard", label: "Dashboard" },
     { key: "documents", label: "Invoices & Receipts" },
     { key: "cashflow", label: "Cash Flow" },
-    { key: "tips", label: "Tips & Gratuities" },
     { key: "settings", label: "Settings" },
   ];
 
