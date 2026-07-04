@@ -19,6 +19,7 @@ export interface Invoice {
   doc_type?: string;
   subtotal: number;
   tax: number;
+  vat_amount?: number | string | null;
   currency: string;
   notes?: string;
   tags?: string[];

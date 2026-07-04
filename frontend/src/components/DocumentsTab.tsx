@@ -243,6 +243,7 @@ export default function DocumentsTab({
     issue_date: "",
     due_date: "",
     amount: "",
+    vat_amount: "",
     status: "",
     category: "",
     notes: "",
@@ -367,6 +368,7 @@ export default function DocumentsTab({
         issue_date: selectedDoc.issue_date ?? "",
         due_date: selectedDoc.due_date ?? "",
         amount: selectedDoc.amount != null ? String(selectedDoc.amount) : "",
+        vat_amount: selectedDoc.vat_amount != null ? String(selectedDoc.vat_amount) : "",
         status: selectedDoc.status ?? "",
         category: selectedDoc.category ?? "",
         notes: (selectedDoc as any).notes ?? initialNotes ?? "",
@@ -1484,6 +1486,7 @@ export default function DocumentsTab({
                         issue_date: selectedDoc.issue_date ?? "",
                         due_date: selectedDoc.due_date ?? "",
                         amount: selectedDoc.amount != null ? String(selectedDoc.amount) : "",
+                        vat_amount: selectedDoc.vat_amount != null ? String(selectedDoc.vat_amount) : "",
                         status: selectedDoc.status ?? "",
                         category: selectedDoc.category ?? "",
                         notes: (selectedDoc as any).notes ?? notesValue ?? "",
@@ -1614,12 +1617,24 @@ export default function DocumentsTab({
                     <p className="text-xs text-slate-500">Subtotal</p>
                     <p className="font-medium text-slate-900">{formatCurrency((selectedDoc as any).subtotal)}</p>
                   </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Tax</p>
-                    <p className="font-medium text-slate-900">{formatCurrency((selectedDoc as any).tax)}</p>
-                  </div>
-                </div>
-              </div>
+	                  <div>
+	                    <p className="text-xs text-slate-500">Tax</p>
+	                    <p className="font-medium text-slate-900">{formatCurrency((selectedDoc as any).tax)}</p>
+	                  </div>
+		                  <div>
+		                    <p className="text-xs text-slate-500">VAT</p>
+		                    {isEditing ? (
+		                      <input
+		                        className="w-full rounded-md border px-3 py-2 text-sm"
+		                        value={editValues.vat_amount}
+		                        onChange={(e) => setEditValues((v) => ({ ...v, vat_amount: e.target.value }))}
+		                      />
+		                    ) : (
+		                      <p className="font-medium text-slate-900">{formatCurrency(selectedDoc.vat_amount)}</p>
+		                    )}
+		                  </div>
+	                </div>
+	              </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Categorisation</p>
@@ -1689,12 +1704,14 @@ export default function DocumentsTab({
                         setSaveError(null);
                         setSaveMessage(null);
                         const parsedAmount = editValues.amount === "" ? null : Number(editValues.amount);
+                        const parsedVatAmount = editValues.vat_amount === "" ? null : Number(editValues.vat_amount);
                         const body = {
                           supplier: editValues.supplier || "",
                           invoice_number: editValues.invoiceNumber || "",
                           issue_date: editValues.issue_date || null,
                           due_date: editValues.due_date || null,
                           amount: Number.isFinite(parsedAmount) ? parsedAmount : null,
+                          vat_amount: Number.isFinite(parsedVatAmount) ? parsedVatAmount : null,
                           status: editValues.status || "",
                           category: editValues.category || "",
                           notes: editValues.notes ?? "",
